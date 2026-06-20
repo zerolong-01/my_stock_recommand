@@ -102,6 +102,13 @@ interface CompareRow {
     financial_label: string;
 }
 
+interface SectorExposureCard {
+    sector: string;
+    shortlist_count: number;
+    starter_weight: number;
+    note: string;
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -114,6 +121,7 @@ interface DashboardResponse {
     data_health: DataHealthCard[];
     market_briefing: BriefingCard[];
     compare_rows: CompareRow[];
+    sector_exposure: SectorExposureCard[];
     recommendations: Recommendation[];
 }
 
@@ -513,6 +521,36 @@ export default function Home() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Sector balance</p>
+                            <h2 className="mt-2 font-display text-3xl">Where your shortlist is concentrated</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                            Even strong-looking picks can become risky when they all lean on the same sector story. This helps beginners spot concentration early.
+                        </p>
+                    </div>
+                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {(dashboard?.sector_exposure ?? []).map((sector) => (
+                            <article key={sector.sector} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
+                                <p className="text-sm text-slate-500">{sector.sector}</p>
+                                <div className="mt-4 flex items-end justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs text-slate-400">Shortlist count</p>
+                                        <p className="mt-1 font-display text-3xl text-slate-900">{sector.shortlist_count}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs text-slate-400">Starter weight</p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900">{sector.starter_weight}%</p>
+                                    </div>
+                                </div>
+                                <p className="mt-4 text-sm leading-6 text-slate-600">{sector.note}</p>
+                            </article>
+                        ))}
                     </div>
                 </section>
 

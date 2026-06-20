@@ -146,6 +146,13 @@ class CompareRow(BaseModel):
     financial_label: str
 
 
+class SectorExposureCard(BaseModel):
+    sector: str
+    shortlist_count: int
+    starter_weight: float
+    note: str
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -158,6 +165,7 @@ class DashboardResponse(BaseModel):
     data_health: List[DataHealthCard]
     market_briefing: List[BriefingCard]
     compare_rows: List[CompareRow]
+    sector_exposure: List[SectorExposureCard]
     recommendations: List[RecommendationCard]
 
 
@@ -500,6 +508,53 @@ def _build_compare_rows(recommendations: List[RecommendationCard], limit: int = 
     return rows
 
 
+def _build_sector_exposure(
+    recommendations: List[RecommendationCard],
+    starter_plan: StarterPlan,
+    limit: int = 4,
+) -> List[SectorExposureCard]:
+    shortlist_counts: dict[str, int] = {}
+    starter_weights: dict[str, float] = {}
+
+    for item in recommendations:
+        sector = item.sector or "Unknown"
+        shortlist_counts[sector] = shortlist_counts.get(sector, 0) + 1
+
+    for allocation in starter_plan.allocations:
+        sector = allocation.sector or "Unknown"
+        starter_weights[sector] = starter_weights.get(sector, 0.0) + allocation.weight
+
+    ordered_sectors = sorted(
+        shortlist_counts.keys(),
+        key=lambda sector: (starter_weights.get(sector, 0.0), shortlist_counts.get(sector, 0)),
+        reverse=True,
+    )
+
+    cards: List[SectorExposureCard] = []
+    for sector in ordered_sectors[:limit]:
+        shortlist_count = shortlist_counts.get(sector, 0)
+        starter_weight = round(starter_weights.get(sector, 0.0), 1)
+        if starter_weight >= 45:
+            note = "Starter basket weight is concentrated here, so keep an eye on sector-specific news."
+        elif shortlist_count >= 3:
+            note = "This sector appears often in the shortlist, so compare names carefully instead of buying all of them."
+        elif starter_weight == 0:
+            note = "This sector appears in the shortlist but is not heavily used in the starter basket."
+        else:
+            note = "Exposure looks balanced enough for a beginner to study without overloading one theme."
+
+        cards.append(
+            SectorExposureCard(
+                sector=sector,
+                shortlist_count=shortlist_count,
+                starter_weight=starter_weight,
+                note=note,
+            )
+        )
+
+    return cards
+
+
 def _financial_bonus(financial_snapshot: FinancialSnapshot) -> tuple[float, List[str]]:
     bonus = 0.0
     reasons: List[str] = []
@@ -840,5 +895,6 @@ def read_dashboard(
         data_health=_build_data_health(db, as_of),
         market_briefing=_build_market_briefing(recommendations),
         compare_rows=_build_compare_rows(recommendations),
+        sector_exposure=_build_sector_exposure(recommendations, starter_plan),
         recommendations=recommendations,
     )
