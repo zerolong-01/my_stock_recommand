@@ -239,10 +239,18 @@ export default function Home() {
 
     const selectedRecommendation =
         dashboard?.recommendations.find((item) => item.ticker_code === selectedTicker) ?? null;
+    const usesDemoFinancials =
+        dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
 
     return (
         <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.28),_transparent_32%),linear-gradient(135deg,_#f6efe4_0%,_#e7f0ec_55%,_#d7e7f5_100%)] text-slate-900">
             <section className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-12">
+                {usesDemoFinancials && (
+                    <div className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900 shadow-[0_8px_24px_rgba(120,86,18,0.08)]">
+                        Financial guidance currently includes labeled demo seed data so you can review the full beginner flow before live statement ingestion is connected.
+                    </div>
+                )}
+
                 <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                     <div className="rounded-[32px] border border-white/70 bg-white/80 p-8 shadow-[0_24px_80px_rgba(39,61,51,0.12)] backdrop-blur">
                         <div className="mb-5 inline-flex items-center gap-3 rounded-full bg-[#173f35] px-4 py-2 text-sm font-medium text-white">
