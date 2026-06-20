@@ -120,6 +120,14 @@ class DataSourceSummary(BaseModel):
     description: str
 
 
+class BriefingCard(BaseModel):
+    title: str
+    label: str
+    ticker_code: str
+    ticker_name: str
+    detail: str
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -129,6 +137,7 @@ class DashboardResponse(BaseModel):
     active_profile: ActiveProfile
     starter_plan: StarterPlan
     data_sources: List[DataSourceSummary]
+    market_briefing: List[BriefingCard]
     recommendations: List[RecommendationCard]
 
 
@@ -355,6 +364,46 @@ def _data_sources_summary(has_financial_data: bool) -> List[DataSourceSummary]:
         ),
     ]
     return sources
+
+
+def _build_market_briefing(recommendations: List[RecommendationCard]) -> List[BriefingCard]:
+    if not recommendations:
+        return []
+
+    calmest = min(recommendations, key=lambda item: item.volatility)
+    strongest_trend = max(recommendations, key=lambda item: item.price_change_20d)
+    best_financial = max(
+        recommendations,
+        key=lambda item: (
+            1 if item.financial_snapshot.operating_income and item.financial_snapshot.operating_income > 0 else 0,
+            1 if item.financial_snapshot.net_income and item.financial_snapshot.net_income > 0 else 0,
+            item.score,
+        ),
+    )
+
+    return [
+        BriefingCard(
+            title="Calmest setup",
+            label="Lower swing candidate",
+            ticker_code=calmest.ticker_code,
+            ticker_name=calmest.ticker_name,
+            detail=f"Recent volatility is {calmest.volatility:.1f}%, which is the most beginner-friendly range in the shortlist.",
+        ),
+        BriefingCard(
+            title="Strongest momentum",
+            label="Trend leader",
+            ticker_code=strongest_trend.ticker_code,
+            ticker_name=strongest_trend.ticker_name,
+            detail=f"The 20-day move is {strongest_trend.price_change_20d:.1f}%, so the recent direction is easiest to recognize here.",
+        ),
+        BriefingCard(
+            title="Best fundamental support",
+            label="Financial check",
+            ticker_code=best_financial.ticker_code,
+            ticker_name=best_financial.ticker_name,
+            detail=best_financial.financial_snapshot.summary,
+        ),
+    ]
 
 
 def _financial_bonus(financial_snapshot: FinancialSnapshot) -> tuple[float, List[str]]:
@@ -694,5 +743,6 @@ def read_dashboard(
         active_profile=_profile_copy(risk_profile, learning_focus),
         starter_plan=starter_plan,
         data_sources=_data_sources_summary(has_financial_data),
+        market_briefing=_build_market_briefing(recommendations),
         recommendations=recommendations,
     )

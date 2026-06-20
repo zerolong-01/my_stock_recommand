@@ -76,6 +76,14 @@ interface DataSourceSummary {
     description: string;
 }
 
+interface BriefingCard {
+    title: string;
+    label: string;
+    ticker_code: string;
+    ticker_name: string;
+    detail: string;
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -85,6 +93,7 @@ interface DashboardResponse {
     active_profile: ActiveProfile;
     starter_plan: StarterPlan;
     data_sources: DataSourceSummary[];
+    market_briefing: BriefingCard[];
     recommendations: Recommendation[];
 }
 
@@ -387,6 +396,41 @@ export default function Home() {
                             <p className="mt-3 text-sm leading-6 text-slate-600">{card.description}</p>
                         </article>
                     ))}
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Beginner briefing</p>
+                            <h2 className="mt-2 font-display text-3xl">How to read today&apos;s shortlist</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                            Instead of opening ten charts at once, start with these three quick signals to understand what stands out in the list.
+                        </p>
+                    </div>
+                    <div className="mt-6 grid gap-4 md:grid-cols-3">
+                        {(dashboard?.market_briefing ?? []).map((card) => (
+                            <article key={`${card.title}-${card.ticker_code}`} className="rounded-[26px] bg-[#f8f6ef] p-5 shadow-[0_10px_30px_rgba(40,52,47,0.06)]">
+                                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{card.title}</p>
+                                <div className="mt-3 flex items-start justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-2xl font-semibold text-slate-900">{card.ticker_name}</h3>
+                                        <p className="mt-1 text-sm text-slate-500">
+                                            {card.ticker_code} | {card.label}
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTickerClick(card.ticker_code)}
+                                        className="rounded-full bg-[#173f35] px-3 py-2 text-xs font-medium text-white"
+                                    >
+                                        View
+                                    </button>
+                                </div>
+                                <p className="mt-4 text-sm leading-6 text-slate-600">{card.detail}</p>
+                            </article>
+                        ))}
+                    </div>
                 </section>
 
                 <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
