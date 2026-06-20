@@ -144,6 +144,8 @@ interface ChartData {
 
 type RiskProfile = 'steady' | 'balanced' | 'ambitious';
 type LearningFocus = 'dividend' | 'trend' | 'value';
+type ShortlistFilter = 'all' | 'lower-risk' | 'financial-ready' | 'saved';
+type ShortlistSort = 'recommended' | 'score' | 'stability' | 'momentum';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -214,6 +216,8 @@ export default function Home() {
     const [learningFocus, setLearningFocus] = useState<LearningFocus>('trend');
     const [monthlyBudget, setMonthlyBudget] = useState(300000);
     const [watchlist, setWatchlist] = useState<string[]>([]);
+    const [shortlistFilter, setShortlistFilter] = useState<ShortlistFilter>('all');
+    const [shortlistSort, setShortlistSort] = useState<ShortlistSort>('recommended');
 
     useEffect(() => {
         const saved = window.localStorage.getItem('stock-starter-watchlist');
@@ -369,6 +373,37 @@ export default function Home() {
         },
     ];
     const checklistCompleteCount = buyChecklist.filter((item) => item.done).length;
+    const shortlistItems = (dashboard?.recommendations ?? [])
+        .filter((item) => {
+            if (shortlistFilter === 'lower-risk') {
+                return item.risk_level.toLowerCase() !== 'high';
+            }
+
+            if (shortlistFilter === 'financial-ready') {
+                return Boolean(item.financial_snapshot.source);
+            }
+
+            if (shortlistFilter === 'saved') {
+                return watchlist.includes(item.ticker_code);
+            }
+
+            return true;
+        })
+        .sort((left, right) => {
+            if (shortlistSort === 'score') {
+                return right.score - left.score;
+            }
+
+            if (shortlistSort === 'stability') {
+                return left.volatility - right.volatility;
+            }
+
+            if (shortlistSort === 'momentum') {
+                return right.price_change_20d - left.price_change_20d;
+            }
+
+            return 0;
+        });
 
     const toggleWatchlist = (tickerCode: string) => {
         setWatchlist((current) =>
@@ -1021,6 +1056,75 @@ export default function Home() {
                             </div>
                             <p className="text-sm text-slate-500">As of {dashboard?.as_of ?? '-'}</p>
                         </div>
+                        <div className="mb-6 rounded-[28px] bg-[#f5f1e6] p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Browse the list your way</p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                                        Start with the app&apos;s default ranking, or narrow the list to calmer names, saved ideas, or stocks with financial coverage ready.
+                                    </p>
+                                </div>
+                                <div className="rounded-full bg-white px-4 py-2 text-sm text-slate-600 shadow-[0_8px_20px_rgba(39,61,51,0.06)]">
+                                    Showing {shortlistItems.length} of {dashboard?.recommendations.length ?? 0}
+                                </div>
+                            </div>
+                            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Filter</p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {[
+                                            { value: 'all', label: 'All picks' },
+                                            { value: 'lower-risk', label: 'Lower risk first' },
+                                            { value: 'financial-ready', label: 'Financials ready' },
+                                            { value: 'saved', label: 'Saved only' },
+                                        ].map((option) => {
+                                            const active = shortlistFilter === option.value;
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => setShortlistFilter(option.value as ShortlistFilter)}
+                                                    className={`rounded-full px-4 py-2 text-sm transition ${
+                                                        active
+                                                            ? 'bg-[#173f35] text-white'
+                                                            : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Sort</p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {[
+                                            { value: 'recommended', label: 'Recommended order' },
+                                            { value: 'score', label: 'Highest score' },
+                                            { value: 'stability', label: 'Most stable' },
+                                            { value: 'momentum', label: 'Strongest momentum' },
+                                        ].map((option) => {
+                                            const active = shortlistSort === option.value;
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => setShortlistSort(option.value as ShortlistSort)}
+                                                    className={`rounded-full px-4 py-2 text-sm transition ${
+                                                        active
+                                                            ? 'bg-[#1c4b73] text-white'
+                                                            : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
                         <div className="space-y-4">
                             {loading && (
@@ -1029,7 +1133,13 @@ export default function Home() {
                                 </div>
                             )}
 
-                            {(dashboard?.recommendations ?? []).map((item, index) => {
+                            {!loading && shortlistItems.length === 0 && (
+                                <div className="rounded-3xl border border-dashed border-slate-200 bg-white px-5 py-8 text-center text-slate-500">
+                                    No stocks match this filter yet. Try another filter or save a few names to build your watchlist.
+                                </div>
+                            )}
+
+                            {shortlistItems.map((item, index) => {
                                 const active = selectedTicker === item.ticker_code;
                                 return (
                                     <button
