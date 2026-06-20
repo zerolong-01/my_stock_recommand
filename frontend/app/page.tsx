@@ -213,6 +213,27 @@ export default function Home() {
     const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced');
     const [learningFocus, setLearningFocus] = useState<LearningFocus>('trend');
     const [monthlyBudget, setMonthlyBudget] = useState(300000);
+    const [watchlist, setWatchlist] = useState<string[]>([]);
+
+    useEffect(() => {
+        const saved = window.localStorage.getItem('stock-starter-watchlist');
+        if (!saved) {
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+                setWatchlist(parsed);
+            }
+        } catch (error) {
+            console.error('Failed to parse watchlist:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        window.localStorage.setItem('stock-starter-watchlist', JSON.stringify(watchlist));
+    }, [watchlist]);
 
     useEffect(() => {
         fetchDashboard(riskProfile, learningFocus, monthlyBudget);
@@ -278,6 +299,16 @@ export default function Home() {
         dashboard?.recommendations.find((item) => item.ticker_code === selectedTicker) ?? null;
     const usesDemoFinancials =
         dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
+    const watchlistItems =
+        dashboard?.recommendations.filter((item) => watchlist.includes(item.ticker_code)) ?? [];
+
+    const toggleWatchlist = (tickerCode: string) => {
+        setWatchlist((current) =>
+            current.includes(tickerCode)
+                ? current.filter((code) => code !== tickerCode)
+                : [...current, tickerCode]
+        );
+    };
 
     return (
         <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.28),_transparent_32%),linear-gradient(135deg,_#f6efe4_0%,_#e7f0ec_55%,_#d7e7f5_100%)] text-slate-900">
@@ -476,6 +507,65 @@ export default function Home() {
                             </article>
                         ))}
                     </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-[#173f35] p-6 text-white shadow-[0_22px_80px_rgba(23,63,53,0.22)]">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-white/60">Watchlist</p>
+                            <h2 className="mt-2 font-display text-3xl">Save a few names before you decide</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-white/75">
+                            Keep two or three stocks here while you learn the patterns. It helps beginners compare ideas without feeling rushed.
+                        </p>
+                    </div>
+                    {watchlistItems.length > 0 ? (
+                        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {watchlistItems.map((item) => (
+                                <article key={item.ticker_code} className="rounded-[26px] bg-white/10 p-5 backdrop-blur">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-xs uppercase tracking-[0.18em] text-white/55">Saved pick</p>
+                                            <h3 className="mt-2 text-2xl font-semibold">{item.ticker_name}</h3>
+                                            <p className="mt-1 text-sm text-white/65">
+                                                {item.ticker_code} | {item.sector ?? 'No sector'}
+                                            </p>
+                                        </div>
+                                        <span className="rounded-full bg-[#f4b942] px-3 py-1 text-xs font-medium text-slate-900">
+                                            Score {item.score}
+                                        </span>
+                                    </div>
+                                    <p className="mt-4 text-sm leading-6 text-white/78">{item.fit_for}</p>
+                                    <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/70">
+                                        <span className="rounded-full bg-white/10 px-3 py-1">Risk {item.risk_level}</span>
+                                        <span className="rounded-full bg-white/10 px-3 py-1">
+                                            20-day {formatPercent(item.price_change_20d)}
+                                        </span>
+                                    </div>
+                                    <div className="mt-5 flex flex-wrap gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTickerClick(item.ticker_code)}
+                                            className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#173f35]"
+                                        >
+                                            Open detail
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleWatchlist(item.ticker_code)}
+                                            className="rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white/85"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="mt-6 rounded-[26px] border border-dashed border-white/20 bg-white/6 p-6 text-sm leading-6 text-white/70">
+                            Your watchlist is empty. Tap the save button on a recommendation to keep a few beginner-friendly ideas in one place.
+                        </div>
+                    )}
                 </section>
 
                 <section className="mt-8 rounded-[32px] border border-white/70 bg-white/78 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
@@ -794,6 +884,11 @@ export default function Home() {
                                                     <span className={`rounded-full px-3 py-1 ${active ? 'bg-[#f4b942] text-slate-900' : 'bg-[#f4b942]/20 text-[#7b5410]'}`}>
                                                         Risk {item.risk_level}
                                                     </span>
+                                                    {watchlist.includes(item.ticker_code) && (
+                                                        <span className={`rounded-full px-3 py-1 ${active ? 'bg-white/18 text-white' : 'bg-[#173f35]/12 text-[#173f35]'}`}>
+                                                            Saved
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
 
@@ -828,9 +923,22 @@ export default function Home() {
                                     </p>
                                 </div>
                                 {selectedRecommendation && (
-                                    <div className="rounded-3xl bg-[#f5f0e4] px-4 py-3 text-right">
-                                        <p className="text-xs text-slate-500">Current price</p>
-                                        <p className="font-display text-3xl">{formatPrice(selectedRecommendation.current_price)} KRW</p>
+                                    <div className="flex flex-wrap items-center justify-end gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleWatchlist(selectedRecommendation.ticker_code)}
+                                            className={`rounded-full px-4 py-3 text-sm font-medium transition ${
+                                                watchlist.includes(selectedRecommendation.ticker_code)
+                                                    ? 'bg-[#173f35] text-white'
+                                                    : 'border border-slate-200 bg-white text-slate-700'
+                                            }`}
+                                        >
+                                            {watchlist.includes(selectedRecommendation.ticker_code) ? 'Saved to watchlist' : 'Save to watchlist'}
+                                        </button>
+                                        <div className="rounded-3xl bg-[#f5f0e4] px-4 py-3 text-right">
+                                            <p className="text-xs text-slate-500">Current price</p>
+                                            <p className="font-display text-3xl">{formatPrice(selectedRecommendation.current_price)} KRW</p>
+                                        </div>
                                     </div>
                                 )}
                             </div>
