@@ -218,6 +218,7 @@ export default function Home() {
     const [watchlist, setWatchlist] = useState<string[]>([]);
     const [shortlistFilter, setShortlistFilter] = useState<ShortlistFilter>('all');
     const [shortlistSort, setShortlistSort] = useState<ShortlistSort>('recommended');
+    const [copiedReport, setCopiedReport] = useState(false);
 
     useEffect(() => {
         const saved = window.localStorage.getItem('stock-starter-watchlist');
@@ -404,6 +405,21 @@ export default function Home() {
 
             return 0;
         });
+    const starterBriefLines = [
+        `Risk profile: ${selectedRiskOption.title}`,
+        `Learning focus: ${selectedFocusOption.title}`,
+        `Starter budget: ${formatBudgetLabel(monthlyBudget)}`,
+        roadmapHighlight
+            ? `Primary idea: ${roadmapHighlight.ticker_name} (${roadmapHighlight.ticker_code}) with score ${roadmapHighlight.score} and risk ${roadmapHighlight.risk_level}.`
+            : 'Primary idea: not selected yet.',
+        watchlistItems.length > 0
+            ? `Saved watchlist: ${watchlistItems.map((item) => item.ticker_code).join(', ')}`
+            : 'Saved watchlist: none yet.',
+        nextActions[0],
+        nextActions[1],
+        nextActions[2],
+    ];
+    const starterBrief = starterBriefLines.join('\n');
 
     const toggleWatchlist = (tickerCode: string) => {
         setWatchlist((current) =>
@@ -411,6 +427,16 @@ export default function Home() {
                 ? current.filter((code) => code !== tickerCode)
                 : [...current, tickerCode]
         );
+    };
+
+    const handleCopyBrief = async () => {
+        try {
+            await navigator.clipboard.writeText(starterBrief);
+            setCopiedReport(true);
+            window.setTimeout(() => setCopiedReport(false), 1800);
+        } catch (error) {
+            console.error('Failed to copy starter brief:', error);
+        }
     };
 
     return (
@@ -675,6 +701,59 @@ export default function Home() {
                                 </div>
                             </article>
                         </div>
+                    </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Today&apos;s starter brief</p>
+                            <h2 className="mt-2 font-display text-3xl">A simple summary you can revisit or share</h2>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleCopyBrief}
+                            className={`rounded-full px-4 py-3 text-sm font-medium transition ${
+                                copiedReport ? 'bg-[#173f35] text-white' : 'border border-slate-200 bg-white text-slate-700'
+                            }`}
+                        >
+                            {copiedReport ? 'Copied brief' : 'Copy brief'}
+                        </button>
+                    </div>
+                    <div className="mt-6 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                        <article className="rounded-[28px] bg-[#f8f6ef] p-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
+                            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Snapshot</p>
+                            <div className="mt-4 space-y-3">
+                                <div className="rounded-[22px] bg-white px-4 py-4">
+                                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Current setup</p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                                        {selectedRiskOption.title} risk comfort, {selectedFocusOption.title.toLowerCase()} learning focus, and a monthly starter budget of {formatBudgetLabel(monthlyBudget)}.
+                                    </p>
+                                </div>
+                                <div className="rounded-[22px] bg-white px-4 py-4">
+                                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Lead pick</p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                                        {roadmapHighlight
+                                            ? `${roadmapHighlight.ticker_name} stands out right now with score ${roadmapHighlight.score}, risk ${roadmapHighlight.risk_level}, and a ${formatPercent(roadmapHighlight.price_change_20d)} move over 20 days.`
+                                            : 'Open a recommendation to generate a lead pick summary.'}
+                                    </p>
+                                </div>
+                                <div className="rounded-[22px] bg-white px-4 py-4">
+                                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Saved ideas</p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                                        {watchlistItems.length > 0
+                                            ? `${watchlistItems.length} stock${watchlistItems.length > 1 ? 's are' : ' is'} saved for later review: ${watchlistItems
+                                                  .map((item) => item.ticker_code)
+                                                  .join(', ')}.`
+                                            : 'No stocks saved yet, so the watchlist can still be used as your compare-later tray.'}
+                                    </p>
+                                </div>
+                            </div>
+                        </article>
+                        <article className="rounded-[28px] bg-[#173f35] p-5 text-white shadow-[0_12px_30px_rgba(23,63,53,0.18)]">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/55">Copy-ready note</p>
+                            <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-7 text-white/84">{starterBrief}</pre>
+                        </article>
                     </div>
                 </section>
 
