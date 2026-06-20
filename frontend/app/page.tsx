@@ -91,6 +91,17 @@ interface DataHealthCard {
     detail: string;
 }
 
+interface CompareRow {
+    ticker_code: string;
+    ticker_name: string;
+    sector: string | null;
+    score: number;
+    risk_level: string;
+    price_change_20d: number;
+    volatility: number;
+    financial_label: string;
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -102,6 +113,7 @@ interface DashboardResponse {
     data_sources: DataSourceSummary[];
     data_health: DataHealthCard[];
     market_briefing: BriefingCard[];
+    compare_rows: CompareRow[];
     recommendations: Recommendation[];
 }
 
@@ -446,6 +458,61 @@ export default function Home() {
                                 <p className="mt-4 text-sm leading-6 text-slate-600">{card.detail}</p>
                             </article>
                         ))}
+                    </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/78 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Quick compare</p>
+                            <h2 className="mt-2 font-display text-3xl">Top candidates side by side</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                            This is the fastest way for a beginner to compare the shortlist without jumping in and out of multiple charts.
+                        </p>
+                    </div>
+                    <div className="mt-6 overflow-x-auto">
+                        <table className="min-w-full border-separate border-spacing-y-3">
+                            <thead>
+                                <tr className="text-left text-sm text-slate-500">
+                                    <th className="px-4 py-2">Stock</th>
+                                    <th className="px-4 py-2">Score</th>
+                                    <th className="px-4 py-2">Risk</th>
+                                    <th className="px-4 py-2">20-day move</th>
+                                    <th className="px-4 py-2">Volatility</th>
+                                    <th className="px-4 py-2">Financials</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(dashboard?.compare_rows ?? []).map((row) => (
+                                    <tr key={row.ticker_code} className="rounded-[20px] bg-white shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
+                                        <td className="rounded-l-[20px] px-4 py-4">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleTickerClick(row.ticker_code)}
+                                                className="text-left"
+                                            >
+                                                <p className="text-lg font-semibold text-slate-900">{row.ticker_name}</p>
+                                                <p className="mt-1 text-sm text-slate-500">
+                                                    {row.ticker_code} | {row.sector ?? 'No sector'}
+                                                </p>
+                                            </button>
+                                        </td>
+                                        <td className="px-4 py-4 font-display text-2xl text-slate-900">{row.score}</td>
+                                        <td className="px-4 py-4">
+                                            <span className="rounded-full bg-[#f4b942]/20 px-3 py-2 text-sm text-[#7b5410]">
+                                                {row.risk_level}
+                                            </span>
+                                        </td>
+                                        <td className={`px-4 py-4 text-sm font-medium ${row.price_change_20d >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                            {formatPercent(row.price_change_20d)}
+                                        </td>
+                                        <td className="px-4 py-4 text-sm text-slate-700">{row.volatility.toFixed(1)}%</td>
+                                        <td className="rounded-r-[20px] px-4 py-4 text-sm text-slate-700">{row.financial_label}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </section>
 

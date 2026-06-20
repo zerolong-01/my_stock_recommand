@@ -135,6 +135,17 @@ class DataHealthCard(BaseModel):
     detail: str
 
 
+class CompareRow(BaseModel):
+    ticker_code: str
+    ticker_name: str
+    sector: Optional[str] = None
+    score: float
+    risk_level: str
+    price_change_20d: float
+    volatility: float
+    financial_label: str
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -146,6 +157,7 @@ class DashboardResponse(BaseModel):
     data_sources: List[DataSourceSummary]
     data_health: List[DataHealthCard]
     market_briefing: List[BriefingCard]
+    compare_rows: List[CompareRow]
     recommendations: List[RecommendationCard]
 
 
@@ -461,6 +473,31 @@ def _build_data_health(db: Session, as_of: date) -> List[DataHealthCard]:
             ),
         ),
     ]
+
+
+def _build_compare_rows(recommendations: List[RecommendationCard], limit: int = 3) -> List[CompareRow]:
+    rows: List[CompareRow] = []
+    for item in recommendations[:limit]:
+        if item.financial_snapshot.year and item.financial_snapshot.operating_income and item.financial_snapshot.operating_income > 0:
+            financial_label = "Profit data ready"
+        elif item.financial_snapshot.year:
+            financial_label = "Statement saved"
+        else:
+            financial_label = "No statement yet"
+
+        rows.append(
+            CompareRow(
+                ticker_code=item.ticker_code,
+                ticker_name=item.ticker_name,
+                sector=item.sector,
+                score=item.score,
+                risk_level=item.risk_level,
+                price_change_20d=item.price_change_20d,
+                volatility=item.volatility,
+                financial_label=financial_label,
+            )
+        )
+    return rows
 
 
 def _financial_bonus(financial_snapshot: FinancialSnapshot) -> tuple[float, List[str]]:
@@ -802,5 +839,6 @@ def read_dashboard(
         data_sources=_data_sources_summary(has_financial_data),
         data_health=_build_data_health(db, as_of),
         market_briefing=_build_market_briefing(recommendations),
+        compare_rows=_build_compare_rows(recommendations),
         recommendations=recommendations,
     )
