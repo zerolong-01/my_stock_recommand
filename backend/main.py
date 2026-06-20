@@ -7,6 +7,7 @@ from typing import Generator, List, Literal, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from backend import database, models
@@ -63,6 +64,7 @@ class RecommendationCard(BaseModel):
     beginner_note: str
     action_guide: str
     profile_match: str
+    financial_snapshot: FinancialSnapshot
 
 
 class SummaryCard(BaseModel):
@@ -101,6 +103,21 @@ class StarterPlan(BaseModel):
     tips: List[str]
 
 
+class FinancialSnapshot(BaseModel):
+    revenue: Optional[float] = None
+    operating_income: Optional[float] = None
+    net_income: Optional[float] = None
+    year: Optional[int] = None
+    quarter: Optional[int] = None
+    summary: str
+
+
+class DataSourceSummary(BaseModel):
+    name: str
+    status: str
+    description: str
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -109,6 +126,7 @@ class DashboardResponse(BaseModel):
     summary_cards: List[SummaryCard]
     active_profile: ActiveProfile
     starter_plan: StarterPlan
+    data_sources: List[DataSourceSummary]
     recommendations: List[RecommendationCard]
 
 
@@ -265,6 +283,74 @@ def _portfolio_profile_note(risk_profile: RiskProfile) -> str:
     return notes[risk_profile]
 
 
+def _has_financial_table() -> bool:
+    inspector = inspect(database.engine)
+    return "financial_statements" in inspector.get_table_names()
+
+
+def _get_financial_snapshot(db: Session, ticker_code: str) -> FinancialSnapshot:
+    if not _has_financial_table():
+        return FinancialSnapshot(summary="Financial statement pipeline is ready, but no imported statements are available yet.")
+
+    statement = (
+        db.query(models.FinancialStatement)
+        .filter(models.FinancialStatement.ticker_code == ticker_code)
+        .order_by(models.FinancialStatement.year.desc(), models.FinancialStatement.quarter.desc())
+        .first()
+    )
+
+    if not statement:
+        return FinancialSnapshot(summary="No saved financial statement yet for this stock, so the recommendation leans on market data first.")
+
+    summary_parts = []
+    if statement.revenue and statement.revenue > 0:
+        summary_parts.append("Revenue data available")
+    if statement.operating_income and statement.operating_income > 0:
+        summary_parts.append("Operating profit is positive")
+    if statement.net_income and statement.net_income > 0:
+        summary_parts.append("Net income is positive")
+
+    return FinancialSnapshot(
+        revenue=statement.revenue,
+        operating_income=statement.operating_income,
+        net_income=statement.net_income,
+        year=statement.year,
+        quarter=statement.quarter,
+        summary=", ".join(summary_parts) if summary_parts else "Financial statement exists, but the latest snapshot needs a closer manual read.",
+    )
+
+
+def _data_sources_summary(has_financial_data: bool) -> List[DataSourceSummary]:
+    sources = [
+        DataSourceSummary(
+            name="Price trend",
+            status="active",
+            description="Uses recent 20-day direction and multi-session price range to judge readable momentum.",
+        ),
+        DataSourceSummary(
+            name="Technical indicators",
+            status="active",
+            description="Reads RSI and MACD so beginners can see when momentum is hot, calm, or mixed.",
+        ),
+        DataSourceSummary(
+            name="Volume attention",
+            status="active",
+            description="Checks whether recent trading volume is above normal to spot rising market attention.",
+        ),
+        DataSourceSummary(
+            name="Sector context",
+            status="active",
+            description="Keeps the starter basket from overloading one sector and helps explain comparison-based picks.",
+        ),
+        DataSourceSummary(
+            name="Financial statements",
+            status="active" if has_financial_data else "pending",
+            description="Prepared to use revenue and profit data when statements are imported from the pipeline.",
+        ),
+    ]
+    return sources
+
+
 def _allocation_weights(risk_profile: RiskProfile) -> List[float]:
     weights = {
         "steady": [0.38, 0.34, 0.18],
@@ -359,6 +445,7 @@ def build_recommendation(
     prices: List[models.DailyPrice],
     risk_profile: RiskProfile,
     learning_focus: LearningFocus,
+    financial_snapshot: FinancialSnapshot,
 ) -> RecommendationCard:
     latest = prices[0]
     oldest = prices[-1]
@@ -434,6 +521,7 @@ def build_recommendation(
         beginner_note=_beginner_note(latest.rsi, latest.macd),
         action_guide=_action_guide(score, volatility),
         profile_match=f"{risk_match} {focus_match}",
+        financial_snapshot=financial_snapshot,
     )
 
 
@@ -456,12 +544,14 @@ def get_ranked_recommendations(
         )
         if len(prices) < 10:
             continue
+        financial_snapshot = _get_financial_snapshot(db, ticker.code)
         recommendations.append(
             build_recommendation(
                 ticker=ticker,
                 prices=prices,
                 risk_profile=risk_profile,
                 learning_focus=learning_focus,
+                financial_snapshot=financial_snapshot,
             )
         )
 
@@ -534,6 +624,12 @@ def read_dashboard(
         monthly_budget=monthly_budget,
         risk_profile=risk_profile,
     )
+    has_financial_data = any(
+        item.financial_snapshot.revenue is not None
+        or item.financial_snapshot.operating_income is not None
+        or item.financial_snapshot.net_income is not None
+        for item in recommendations
+    )
 
     return DashboardResponse(
         as_of=as_of,
@@ -572,5 +668,6 @@ def read_dashboard(
         ],
         active_profile=_profile_copy(risk_profile, learning_focus),
         starter_plan=starter_plan,
+        data_sources=_data_sources_summary(has_financial_data),
         recommendations=recommendations,
     )

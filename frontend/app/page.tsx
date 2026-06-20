@@ -20,6 +20,7 @@ interface Recommendation {
     beginner_note: string;
     action_guide: string;
     profile_match: string;
+    financial_snapshot: FinancialSnapshot;
 }
 
 interface SummaryCard {
@@ -58,6 +59,21 @@ interface StarterPlan {
     tips: string[];
 }
 
+interface FinancialSnapshot {
+    revenue: number | null;
+    operating_income: number | null;
+    net_income: number | null;
+    year: number | null;
+    quarter: number | null;
+    summary: string;
+}
+
+interface DataSourceSummary {
+    name: string;
+    status: string;
+    description: string;
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -66,6 +82,7 @@ interface DashboardResponse {
     summary_cards: SummaryCard[];
     active_profile: ActiveProfile;
     starter_plan: StarterPlan;
+    data_sources: DataSourceSummary[];
     recommendations: Recommendation[];
 }
 
@@ -370,6 +387,37 @@ export default function Home() {
                     ))}
                 </section>
 
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Data mix</p>
+                            <h2 className="mt-2 font-display text-3xl">What powers these recommendations</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                            Beginner apps feel more trustworthy when they explain the inputs. This panel shows which data streams are already active and which are still being prepared.
+                        </p>
+                    </div>
+                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                        {(dashboard?.data_sources ?? []).map((source) => (
+                            <article key={source.name} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="font-semibold text-slate-900">{source.name}</p>
+                                    <span
+                                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                            source.status === 'active'
+                                                ? 'bg-emerald-100 text-emerald-700'
+                                                : 'bg-amber-100 text-amber-700'
+                                        }`}
+                                    >
+                                        {source.status}
+                                    </span>
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-slate-600">{source.description}</p>
+                            </article>
+                        ))}
+                    </div>
+                </section>
+
                 <section className="mt-8 rounded-[32px] bg-[#173f35] p-6 text-white shadow-[0_24px_80px_rgba(16,45,38,0.2)]">
                     <div className="flex flex-wrap items-end justify-between gap-4">
                         <div>
@@ -593,6 +641,35 @@ export default function Home() {
                                 <p className="mt-3 text-sm leading-7 text-white/88">
                                     {selectedRecommendation?.action_guide ?? 'Choose a stock to see a simple next-step suggestion.'}
                                 </p>
+                            </div>
+                            <div className="mt-4 rounded-3xl bg-white/8 p-5">
+                                <p className="text-sm text-white/65">Financial snapshot</p>
+                                <p className="mt-3 text-sm leading-7 text-white/88">
+                                    {selectedRecommendation?.financial_snapshot.summary ??
+                                        'Choose a stock to see how financial statement coverage looks.'}
+                                </p>
+                                {selectedRecommendation?.financial_snapshot.year && (
+                                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                                        <div className="rounded-2xl bg-white/6 px-4 py-3">
+                                            <p className="text-xs text-white/55">Revenue</p>
+                                            <p className="mt-1 text-sm font-semibold">
+                                                {formatPrice(selectedRecommendation.financial_snapshot.revenue ?? 0)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-white/6 px-4 py-3">
+                                            <p className="text-xs text-white/55">Operating income</p>
+                                            <p className="mt-1 text-sm font-semibold">
+                                                {formatPrice(selectedRecommendation.financial_snapshot.operating_income ?? 0)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-white/6 px-4 py-3">
+                                            <p className="text-xs text-white/55">Net income</p>
+                                            <p className="mt-1 text-sm font-semibold">
+                                                {formatPrice(selectedRecommendation.financial_snapshot.net_income ?? 0)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <div className="mt-5 rounded-3xl bg-white/8 p-5">
                                 <p className="text-sm text-white/65">Recommendation reasons</p>
