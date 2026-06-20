@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 from statistics import mean
-from typing import Generator, List, Optional
+from typing import Generator, List, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,10 +12,14 @@ from sqlalchemy.orm import Session
 from backend import database, models
 
 
+RiskProfile = Literal["steady", "balanced", "ambitious"]
+LearningFocus = Literal["dividend", "trend", "value"]
+
+
 app = FastAPI(
     title="Stock Starter API",
-    description="초보 투자자를 위한 한국 주식 추천 API",
-    version="1.0.0",
+    description="Beginner-first Korean stock recommendation API",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -58,6 +62,7 @@ class RecommendationCard(BaseModel):
     reasons: List[str]
     beginner_note: str
     action_guide: str
+    profile_match: str
 
 
 class SummaryCard(BaseModel):
@@ -67,12 +72,20 @@ class SummaryCard(BaseModel):
     description: str
 
 
+class ActiveProfile(BaseModel):
+    risk_profile: RiskProfile
+    learning_focus: LearningFocus
+    label: str
+    description: str
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
     subheadline: str
     starter_steps: List[str]
     summary_cards: List[SummaryCard]
+    active_profile: ActiveProfile
     recommendations: List[RecommendationCard]
 
 
@@ -92,45 +105,140 @@ def _pct_change(current: float, previous: float) -> float:
 
 def _risk_level(volatility: float, rsi: Optional[float]) -> str:
     if volatility >= 4.5 or (rsi is not None and rsi >= 70):
-        return "높음"
+        return "High"
     if volatility >= 2.5 or (rsi is not None and rsi <= 35):
-        return "보통"
-    return "낮음"
+        return "Medium"
+    return "Low"
 
 
 def _fit_for(score: float, volatility: float) -> str:
     if score >= 78 and volatility < 3:
-        return "천천히 배우며 시작하는 초보자"
+        return "Best for a beginner who wants a calm first stock."
     if score >= 68:
-        return "분산 투자에 익숙해지는 입문자"
-    return "관심 종목으로 관찰해볼 초보자"
+        return "Best for a beginner comparing a few candidates side by side."
+    return "Best as a watchlist idea while you learn how signals move."
 
 
 def _badge(score: float) -> str:
     if score >= 80:
-        return "지금 보기 좋은 후보"
+        return "Strong starter pick"
     if score >= 70:
-        return "차분히 살펴볼 후보"
-    return "관찰 리스트 추천"
+        return "Worth a closer look"
+    return "Watchlist candidate"
 
 
 def _action_guide(score: float, volatility: float) -> str:
     if score >= 80 and volatility < 3.5:
-        return "한 번에 많이 사기보다 2~3번으로 나눠 진입해 보세요."
+        return "Consider splitting your first buy into two or three smaller entries."
     if volatility >= 4:
-        return "변동이 큰 편이라 소액으로 먼저 지켜보는 편이 안전합니다."
-    return "바로 매수 판단보다 실적 일정과 최근 뉴스 확인을 먼저 권장합니다."
+        return "This one moves quickly, so it is safer to study it with a small amount first."
+    return "Check earnings dates and recent news before making any first-buy decision."
 
 
 def _beginner_note(rsi: Optional[float], macd: Optional[float]) -> str:
     if rsi is not None and rsi < 35:
-        return "최근 눌림이 있었던 종목이라 초보자도 가격 부담을 덜 느낄 수 있습니다."
+        return "The stock recently cooled down, which can feel less intimidating for a first-time investor."
     if macd is not None and macd > 0:
-        return "추세가 완전히 꺾이지 않은 편이라 초보자가 흐름 공부용으로 보기 좋습니다."
-    return "지금 당장 매수 신호라기보다, 왜 점수가 나왔는지 익히기 좋은 예시입니다."
+        return "The short-term trend is still intact, so it is useful for learning how momentum behaves."
+    return "Treat this as a learning candidate first and a buy decision second."
 
 
-def build_recommendation(ticker: models.Ticker, prices: List[models.DailyPrice]) -> RecommendationCard:
+def _focus_bonus(
+    ticker: models.Ticker,
+    latest: models.DailyPrice,
+    change_20d: float,
+    volatility: float,
+    learning_focus: LearningFocus,
+) -> tuple[float, str]:
+    sector = (ticker.sector or "").lower()
+
+    if learning_focus == "dividend":
+        if volatility <= 3.0:
+            return 8.0, "Matched for steady learners who prefer calmer price swings."
+        return 3.0, "Less calm than a typical steady-income learner may want."
+
+    if learning_focus == "trend":
+        if latest.macd is not None and latest.macd > 0 and change_20d > 0:
+            return 10.0, "Matched for trend learners because momentum is still positive."
+        return 2.0, "Trend signals are mixed, so this is more observational than aggressive."
+
+    if any(keyword in sector for keyword in ["service", "chemical", "bio", "electric", "tech"]):
+        return 8.0, "Matched for value learners because the sector can be compared across peers."
+    return 4.0, "Useful for value learners, but you may want extra business-context reading."
+
+
+def _risk_bonus(volatility: float, risk_profile: RiskProfile) -> tuple[float, str]:
+    if risk_profile == "steady":
+        if volatility < 3.0:
+            return 12.0, "Fits a steady profile thanks to lower recent volatility."
+        if volatility < 5.0:
+            return 5.0, "Acceptable for a steady profile, but not the calmest option."
+        return -5.0, "Too jumpy for a steady first-time investing profile."
+
+    if risk_profile == "ambitious":
+        if volatility >= 4.0:
+            return 8.0, "Fits an ambitious profile that can tolerate faster price moves."
+        return 3.0, "Solid candidate, though not especially high-energy."
+
+    if volatility < 5.0:
+        return 8.0, "Fits a balanced profile with manageable short-term movement."
+    return 2.0, "Balanced investors can still watch it, but position sizing matters."
+
+
+def _profile_copy(risk_profile: RiskProfile, learning_focus: LearningFocus) -> ActiveProfile:
+    labels = {
+        ("steady", "dividend"): (
+            "Slow and steady starter",
+            "Lower-volatility names rise to the top, with beginner notes tuned for patient learning.",
+        ),
+        ("steady", "trend"): (
+            "Careful trend learner",
+            "Momentum still matters, but unstable charts are pushed down for a safer first experience.",
+        ),
+        ("steady", "value"): (
+            "Patient comparison learner",
+            "The service favors names that are easier to compare calmly rather than chase quickly.",
+        ),
+        ("balanced", "dividend"): (
+            "Balanced income explorer",
+            "You get a mix of stability and learning value, with calmer names still rewarded.",
+        ),
+        ("balanced", "trend"): (
+            "Balanced momentum learner",
+            "You see names with positive signals, but extreme volatility stays penalized.",
+        ),
+        ("balanced", "value"): (
+            "Balanced stock explorer",
+            "The ranking stays broad so a beginner can compare sectors without overcommitting.",
+        ),
+        ("ambitious", "dividend"): (
+            "Active but income-aware",
+            "The service still respects stability, but it allows faster-moving names into the shortlist.",
+        ),
+        ("ambitious", "trend"): (
+            "Fast-learning momentum explorer",
+            "Recent strength matters more, and higher-volatility charts can rank better.",
+        ),
+        ("ambitious", "value"): (
+            "Bold comparison learner",
+            "You still compare business stories, but the service allows more movement in the shortlist.",
+        ),
+    }
+    label, description = labels[(risk_profile, learning_focus)]
+    return ActiveProfile(
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+        label=label,
+        description=description,
+    )
+
+
+def build_recommendation(
+    ticker: models.Ticker,
+    prices: List[models.DailyPrice],
+    risk_profile: RiskProfile,
+    learning_focus: LearningFocus,
+) -> RecommendationCard:
     latest = prices[0]
     oldest = prices[-1]
     closes = [price.close for price in prices]
@@ -145,44 +253,48 @@ def build_recommendation(ticker: models.Ticker, prices: List[models.DailyPrice])
     if latest.rsi is not None:
         if latest.rsi < 35:
             score += 14
-            reasons.append("RSI가 낮아 최근 과열보다 눌림 구간에 가깝습니다.")
+            reasons.append("RSI is in a cooler zone, so the stock is not being chased as aggressively.")
         elif latest.rsi <= 60:
             score += 10
-            reasons.append("RSI가 과열 구간이 아니어서 추격 매수 부담이 덜합니다.")
+            reasons.append("RSI is still in a manageable range for a beginner studying entries.")
         else:
             score += 4
-            reasons.append("상승 흐름은 있지만 단기 과열 여부를 함께 봐야 합니다.")
+            reasons.append("The stock has strength, but short-term heat should be watched closely.")
 
     if latest.macd is not None:
         if latest.macd > 0:
             score += 12
-            reasons.append("MACD가 플러스라 단기 추세가 완전히 꺾이지 않았습니다.")
+            reasons.append("MACD remains positive, so near-term momentum has not broken down yet.")
         else:
-            reasons.append("MACD는 아직 약해 추가 확인이 필요합니다.")
+            reasons.append("MACD is weaker here, so this name needs more confirmation than the top picks.")
 
     if latest.volume > avg_volume * 1.2:
         score += 10
-        reasons.append("최근 거래량이 평균보다 늘어 관심이 붙고 있습니다.")
+        reasons.append("Recent trading volume is above average, which suggests rising attention.")
 
     if change_20d > 8:
         score += 10
-        reasons.append("최근 한 달 흐름이 우상향이라 초보자도 방향을 읽기 쉽습니다.")
+        reasons.append("The last 20 sessions were clearly positive, making the direction easier to read.")
     elif change_20d > 0:
         score += 6
-        reasons.append("최근 흐름이 크게 무너지지 않았습니다.")
+        reasons.append("The short-term path stayed constructive instead of breaking down.")
     else:
         score += 2
-        reasons.append("가격은 쉬어가는 구간이라 분할 접근 관점이 필요합니다.")
+        reasons.append("The stock is in a pause phase, so a beginner should think in partial entries.")
 
     if volatility < 3:
         score += 10
-        reasons.append("변동성이 과하지 않아 초보자에게 상대적으로 편안합니다.")
+        reasons.append("Volatility stayed relatively calm, which can feel friendlier for a first buy.")
     elif volatility < 6:
         score += 5
     else:
-        reasons.append("가격 움직임이 큰 편이라 비중 조절이 중요합니다.")
+        reasons.append("Price swings were large, so sizing discipline matters more than usual.")
 
-    score = round(min(score, 95.0), 1)
+    risk_delta, risk_match = _risk_bonus(volatility, risk_profile)
+    focus_delta, focus_match = _focus_bonus(ticker, latest, change_20d, volatility, learning_focus)
+    score += risk_delta + focus_delta
+
+    score = round(min(max(score, 0.0), 99.0), 1)
     risk_level = _risk_level(volatility, latest.rsi)
 
     return RecommendationCard(
@@ -200,10 +312,16 @@ def build_recommendation(ticker: models.Ticker, prices: List[models.DailyPrice])
         reasons=reasons[:4],
         beginner_note=_beginner_note(latest.rsi, latest.macd),
         action_guide=_action_guide(score, volatility),
+        profile_match=f"{risk_match} {focus_match}",
     )
 
 
-def get_ranked_recommendations(db: Session, limit: int = 10) -> List[RecommendationCard]:
+def get_ranked_recommendations(
+    db: Session,
+    limit: int = 10,
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> List[RecommendationCard]:
     tickers = db.query(models.Ticker).order_by(models.Ticker.market, models.Ticker.code).all()
     recommendations: List[RecommendationCard] = []
 
@@ -217,7 +335,14 @@ def get_ranked_recommendations(db: Session, limit: int = 10) -> List[Recommendat
         )
         if len(prices) < 10:
             continue
-        recommendations.append(build_recommendation(ticker, prices))
+        recommendations.append(
+            build_recommendation(
+                ticker=ticker,
+                prices=prices,
+                risk_profile=risk_profile,
+                learning_focus=learning_focus,
+            )
+        )
 
     recommendations.sort(key=lambda item: item.score, reverse=True)
     return recommendations[:limit]
@@ -248,60 +373,76 @@ def read_prices(ticker_code: str, limit: int = 90, db: Session = Depends(get_db)
 
 
 @app.get("/recommendations", response_model=List[RecommendationCard])
-def read_recommendations(limit: int = 10, db: Session = Depends(get_db)) -> List[RecommendationCard]:
-    return get_ranked_recommendations(db, limit=limit)
+def read_recommendations(
+    limit: int = 10,
+    risk_profile: RiskProfile = Query(default="balanced"),
+    learning_focus: LearningFocus = Query(default="trend"),
+    db: Session = Depends(get_db),
+) -> List[RecommendationCard]:
+    return get_ranked_recommendations(
+        db,
+        limit=limit,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
 
 
 @app.get("/dashboard", response_model=DashboardResponse)
-def read_dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
-    recommendations = get_ranked_recommendations(db, limit=10)
+def read_dashboard(
+    risk_profile: RiskProfile = Query(default="balanced"),
+    learning_focus: LearningFocus = Query(default="trend"),
+    db: Session = Depends(get_db),
+) -> DashboardResponse:
+    recommendations = get_ranked_recommendations(
+        db,
+        limit=10,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
     if not recommendations:
         raise HTTPException(status_code=404, detail="No recommendation data available")
 
-    latest_date = (
-        db.query(models.DailyPrice.date)
-        .order_by(models.DailyPrice.date.desc())
-        .first()
-    )
+    latest_date = db.query(models.DailyPrice.date).order_by(models.DailyPrice.date.desc()).first()
     as_of = latest_date[0] if latest_date else date.today()
     average_score = round(mean(item.score for item in recommendations), 1)
-    low_risk_count = len([item for item in recommendations if item.risk_level == "낮음"])
+    low_risk_count = len([item for item in recommendations if item.risk_level == "Low"])
     positive_trend_count = len([item for item in recommendations if item.price_change_20d > 0])
 
     return DashboardResponse(
         as_of=as_of,
-        headline="처음 투자하는 사람도 이해할 수 있게, 이유까지 설명하는 주식 추천",
-        subheadline="점수만 보여주지 않고 변동성, 최근 흐름, 초보자 메모까지 함께 제공해 첫 종목 탐색 부담을 줄였습니다.",
+        headline="Stock picks that explain the why, not just the score",
+        subheadline="Built for beginners who want guidance similar to investment starter apps: clear reasons, simple risk language, and a profile-aware shortlist.",
         starter_steps=[
-            "먼저 추천 점수보다 리스크 레벨과 초보자 메모를 읽어보세요.",
-            "한 종목에 몰지 말고 2~3개 관심 종목을 비교하며 보는 습관을 만드세요.",
-            "매수 전에는 최근 실적 발표일과 뉴스 이벤트를 꼭 한 번 더 확인하세요.",
+            "Pick a profile first so the list matches how cautious or curious you want your first investing step to be.",
+            "Read the risk line and beginner note before you read the score.",
+            "Use the chart and recent trend together, then check earnings dates and news before buying anything.",
         ],
         summary_cards=[
             SummaryCard(
-                label="분석 종목",
-                value=f"{len(recommendations)}개",
+                label="Stocks ranked",
+                value=f"{len(recommendations)}",
                 tone="neutral",
-                description="최근 가격 데이터가 충분한 종목만 추려 추천에 사용했습니다.",
+                description="Only names with enough recent price data are included in the shortlist.",
             ),
             SummaryCard(
-                label="평균 추천 점수",
-                value=f"{average_score}점",
+                label="Average score",
+                value=f"{average_score}",
                 tone="positive",
-                description="기술적 흐름과 변동성을 함께 반영한 입문자 관점 점수입니다.",
+                description="This blends technical signals with beginner-friendly volatility and profile fit.",
             ),
             SummaryCard(
-                label="저변동 후보",
-                value=f"{low_risk_count}개",
+                label="Low-risk names",
+                value=f"{low_risk_count}",
                 tone="calm",
-                description="가격 출렁임이 상대적으로 적어 초보자에게 덜 부담스러운 종목입니다.",
+                description="These names showed calmer recent movement than the rest of the shortlist.",
             ),
             SummaryCard(
-                label="상승 흐름 유지",
-                value=f"{positive_trend_count}개",
+                label="Positive 20-day trend",
+                value=f"{positive_trend_count}",
                 tone="warm",
-                description="최근 20거래일 기준 흐름이 플러스인 종목 수입니다.",
+                description="Names still holding a positive recent direction over the last 20 sessions.",
             ),
         ],
+        active_profile=_profile_copy(risk_profile, learning_focus),
         recommendations=recommendations,
     )

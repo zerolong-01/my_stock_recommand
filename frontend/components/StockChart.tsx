@@ -1,6 +1,6 @@
 'use client';
 
-import { createChart, ColorType, IChartApi } from 'lightweight-charts';
+import { ColorType, createChart } from 'lightweight-charts';
 import React, { useEffect, useRef } from 'react';
 
 interface ChartProps {
@@ -27,14 +27,9 @@ export const StockChart: React.FC<ChartProps> = (props) => {
     } = props;
 
     const chartContainerRef = useRef<HTMLDivElement>(null);
-    const chartRef = useRef<IChartApi | null>(null);
 
     useEffect(() => {
         if (!chartContainerRef.current) return;
-
-        const handleResize = () => {
-            chartRef.current?.applyOptions({ width: chartContainerRef.current?.clientWidth });
-        };
 
         const chart = createChart(chartContainerRef.current, {
             layout: {
@@ -42,9 +37,12 @@ export const StockChart: React.FC<ChartProps> = (props) => {
                 textColor,
             },
             width: chartContainerRef.current.clientWidth,
-            height: 300,
+            height: 400,
+            grid: {
+                vertLines: { color: '#e1e4e8' },
+                horzLines: { color: '#e1e4e8' },
+            },
         });
-        chartRef.current = chart;
 
         const candlestickSeries = chart.addCandlestickSeries({
             upColor: '#26a69a',
@@ -54,13 +52,18 @@ export const StockChart: React.FC<ChartProps> = (props) => {
             wickDownColor: '#ef5350',
         });
 
-        // Convert data to lightweight-charts format if needed, but assuming passed correctly
         candlestickSeries.setData(data);
+        chart.timeScale().fitContent();
 
-        window.addEventListener('resize', handleResize);
+        const resizeObserver = new ResizeObserver(() => {
+            if (chartContainerRef.current) {
+                chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+            }
+        });
+        resizeObserver.observe(chartContainerRef.current);
 
         return () => {
-            window.removeEventListener('resize', handleResize);
+            resizeObserver.disconnect();
             chart.remove();
         };
     }, [data, backgroundColor, lineColor, textColor, areaTopColor, areaBottomColor]);
@@ -68,7 +71,7 @@ export const StockChart: React.FC<ChartProps> = (props) => {
     return (
         <div
             ref={chartContainerRef}
-            className="w-full relative"
+            className="w-full relative py-4"
         />
     );
 };
