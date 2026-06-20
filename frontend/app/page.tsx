@@ -325,6 +325,50 @@ export default function Home() {
             ? 'Because your starter budget is higher, keep part of it as cash buffer and avoid putting it all into one theme.'
             : 'With a smaller starter budget, focus on learning consistency first instead of chasing too many stocks at once.',
     ];
+    const selectedSectorExposure = selectedRecommendation
+        ? dashboard?.sector_exposure.find((sector) => sector.sector === (selectedRecommendation.sector ?? 'No sector'))
+        : null;
+    const buyChecklist = [
+        {
+            label: 'Read the beginner note',
+            done: Boolean(selectedRecommendation?.beginner_note),
+            detail: selectedRecommendation?.beginner_note ?? 'Choose a stock first to unlock the plain-language caution note.',
+        },
+        {
+            label: 'Save it for a second look',
+            done: Boolean(selectedRecommendation && watchlist.includes(selectedRecommendation.ticker_code)),
+            detail: selectedRecommendation
+                ? watchlist.includes(selectedRecommendation.ticker_code)
+                    ? 'Saved in your watchlist, so you can revisit it after comparing other names.'
+                    : 'Bookmark this stock before buying so you can step away and come back with a clearer head.'
+                : 'Select a stock to decide whether it is worth saving for later.',
+        },
+        {
+            label: 'Check concentration risk',
+            done: Boolean(selectedSectorExposure && selectedSectorExposure.shortlist_count <= 2),
+            detail: selectedSectorExposure
+                ? `${selectedSectorExposure.sector} appears ${selectedSectorExposure.shortlist_count} time${selectedSectorExposure.shortlist_count > 1 ? 's' : ''} in the shortlist. ${selectedSectorExposure.note}`
+                : 'Open a recommendation to see whether your shortlist leans too heavily on one sector story.',
+        },
+        {
+            label: 'Review financial coverage',
+            done: Boolean(selectedRecommendation?.financial_snapshot.source),
+            detail: selectedRecommendation?.financial_snapshot.source
+                ? selectedRecommendation.financial_snapshot.is_demo
+                    ? 'Financial context is available, but it is currently coming from labeled demo seed data.'
+                    : `Financial context is available from ${selectedRecommendation.financial_snapshot.source}.`
+                : 'Financial statement coverage has not been attached to this stock yet.',
+        },
+        {
+            label: 'Keep a cash buffer',
+            done: Boolean((dashboard?.starter_plan.cash_buffer ?? 0) > 0),
+            detail:
+                dashboard?.starter_plan.cash_buffer && dashboard.starter_plan.cash_buffer > 0
+                    ? `Your current starter plan still keeps ${formatBudgetLabel(dashboard.starter_plan.cash_buffer)} unallocated as breathing room.`
+                    : 'Consider leaving part of the monthly budget unused so one idea does not consume your full learning budget.',
+        },
+    ];
+    const checklistCompleteCount = buyChecklist.filter((item) => item.done).length;
 
     const toggleWatchlist = (tickerCode: string) => {
         setWatchlist((current) =>
@@ -1118,6 +1162,48 @@ export default function Home() {
                                         No chart data available for this stock.
                                     </div>
                                 )}
+                            </div>
+                        </section>
+
+                        <section className="rounded-[32px] border border-[#f0dcc2] bg-[#fff7ea] p-6 shadow-[0_20px_70px_rgba(112,82,22,0.08)]">
+                            <div className="flex flex-wrap items-end justify-between gap-4">
+                                <div>
+                                    <p className="text-sm uppercase tracking-[0.24em] text-amber-700">Before you buy</p>
+                                    <h2 className="mt-2 font-display text-3xl text-slate-900">First-purchase checklist</h2>
+                                </div>
+                                <div className="rounded-[24px] bg-white px-4 py-3 text-right shadow-[0_8px_20px_rgba(112,82,22,0.08)]">
+                                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Readiness</p>
+                                    <p className="mt-2 font-display text-3xl text-slate-900">
+                                        {checklistCompleteCount}/{buyChecklist.length}
+                                    </p>
+                                </div>
+                            </div>
+                            <p className="mt-4 text-sm leading-6 text-slate-600">
+                                Beginner investing apps usually slow you down before the first order. This checklist turns the current recommendation into a few calm verification steps.
+                            </p>
+                            <div className="mt-6 space-y-3">
+                                {buyChecklist.map((item) => (
+                                    <article
+                                        key={item.label}
+                                        className={`rounded-[24px] px-5 py-5 shadow-[0_8px_24px_rgba(94,74,33,0.06)] ${
+                                            item.done ? 'bg-white' : 'bg-[#fffaf2]'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="font-semibold text-slate-900">{item.label}</p>
+                                                <p className="mt-3 text-sm leading-6 text-slate-600">{item.detail}</p>
+                                            </div>
+                                            <span
+                                                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                                    item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                                }`}
+                                            >
+                                                {item.done ? 'checked' : 'review'}
+                                            </span>
+                                        </div>
+                                    </article>
+                                ))}
                             </div>
                         </section>
 
