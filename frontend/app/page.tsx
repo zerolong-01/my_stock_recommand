@@ -109,6 +109,14 @@ interface SectorExposureCard {
     note: string;
 }
 
+interface RiskAlertCard {
+    title: string;
+    severity: string;
+    detail: string;
+    ticker_code: string | null;
+    ticker_name: string | null;
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -122,6 +130,7 @@ interface DashboardResponse {
     market_briefing: BriefingCard[];
     compare_rows: CompareRow[];
     sector_exposure: SectorExposureCard[];
+    risk_alerts: RiskAlertCard[];
     recommendations: Recommendation[];
 }
 
@@ -521,6 +530,53 @@ export default function Home() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-[#f3d9a7] bg-[#fff8ea] p-6 shadow-[0_20px_70px_rgba(145,104,27,0.08)]">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-amber-700">Watch-outs</p>
+                            <h2 className="mt-2 font-display text-3xl text-slate-900">What beginners should slow down for</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                            A good stock list is more useful when it also tells you where caution matters. These alerts highlight the easiest mistakes to avoid.
+                        </p>
+                    </div>
+                    <div className="mt-6 grid gap-4 md:grid-cols-2">
+                        {(dashboard?.risk_alerts ?? []).map((alert) => (
+                            <article key={`${alert.title}-${alert.ticker_code ?? 'general'}`} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(94,74,33,0.06)]">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="font-semibold text-slate-900">{alert.title}</p>
+                                        {alert.ticker_name && (
+                                            <p className="mt-1 text-sm text-slate-500">
+                                                {alert.ticker_name} | {alert.ticker_code}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <span
+                                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                            alert.severity === 'high'
+                                                ? 'bg-rose-100 text-rose-700'
+                                                : 'bg-amber-100 text-amber-700'
+                                        }`}
+                                    >
+                                        {alert.severity}
+                                    </span>
+                                </div>
+                                <p className="mt-4 text-sm leading-6 text-slate-600">{alert.detail}</p>
+                                {alert.ticker_code && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTickerClick(alert.ticker_code as string)}
+                                        className="mt-4 rounded-full bg-[#173f35] px-4 py-2 text-sm text-white"
+                                    >
+                                        Review this stock
+                                    </button>
+                                )}
+                            </article>
+                        ))}
                     </div>
                 </section>
 

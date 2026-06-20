@@ -153,6 +153,14 @@ class SectorExposureCard(BaseModel):
     note: str
 
 
+class RiskAlertCard(BaseModel):
+    title: str
+    severity: str
+    detail: str
+    ticker_code: Optional[str] = None
+    ticker_name: Optional[str] = None
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -166,6 +174,7 @@ class DashboardResponse(BaseModel):
     market_briefing: List[BriefingCard]
     compare_rows: List[CompareRow]
     sector_exposure: List[SectorExposureCard]
+    risk_alerts: List[RiskAlertCard]
     recommendations: List[RecommendationCard]
 
 
@@ -555,6 +564,58 @@ def _build_sector_exposure(
     return cards
 
 
+def _build_risk_alerts(recommendations: List[RecommendationCard]) -> List[RiskAlertCard]:
+    alerts: List[RiskAlertCard] = []
+
+    hottest = max(recommendations, key=lambda item: item.price_change_20d, default=None)
+    if hottest and hottest.price_change_20d >= 12:
+        alerts.append(
+            RiskAlertCard(
+                title="Momentum is strong, but chasing can hurt",
+                severity="medium",
+                ticker_code=hottest.ticker_code,
+                ticker_name=hottest.ticker_name,
+                detail=f"{hottest.ticker_name} has the sharpest recent move at {hottest.price_change_20d:.1f}% over 20 sessions. Beginners may want staggered entries instead of rushing in.",
+            )
+        )
+
+    highest_vol = max(recommendations, key=lambda item: item.volatility, default=None)
+    if highest_vol and highest_vol.volatility >= 6:
+        alerts.append(
+            RiskAlertCard(
+                title="One candidate is moving much faster than the rest",
+                severity="high",
+                ticker_code=highest_vol.ticker_code,
+                ticker_name=highest_vol.ticker_name,
+                detail=f"{highest_vol.ticker_name} is showing {highest_vol.volatility:.1f}% recent volatility. Keep position sizes smaller if you use it for learning.",
+            )
+        )
+
+    weak_financial = [item for item in recommendations[:3] if item.financial_snapshot.is_demo]
+    if weak_financial:
+        alerts.append(
+            RiskAlertCard(
+                title="Financial support is still partly demo-based",
+                severity="medium",
+                detail="Some top candidates still rely on labeled demo financial data. Treat the profitability section as a product walkthrough until live statement ingestion is connected.",
+            )
+        )
+
+    cooling = [item for item in recommendations if item.risk_level == "High"]
+    if cooling:
+        alerts.append(
+            RiskAlertCard(
+                title="At least one shortlist name is already in a higher-risk zone",
+                severity="medium",
+                ticker_code=cooling[0].ticker_code,
+                ticker_name=cooling[0].ticker_name,
+                detail=f"{cooling[0].ticker_name} is tagged as {cooling[0].risk_level} risk in the current shortlist. Compare it against calmer names before choosing a first buy.",
+            )
+        )
+
+    return alerts[:4]
+
+
 def _financial_bonus(financial_snapshot: FinancialSnapshot) -> tuple[float, List[str]]:
     bonus = 0.0
     reasons: List[str] = []
@@ -896,5 +957,6 @@ def read_dashboard(
         market_briefing=_build_market_briefing(recommendations),
         compare_rows=_build_compare_rows(recommendations),
         sector_exposure=_build_sector_exposure(recommendations, starter_plan),
+        risk_alerts=_build_risk_alerts(recommendations),
         recommendations=recommendations,
     )
