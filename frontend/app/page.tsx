@@ -84,6 +84,13 @@ interface BriefingCard {
     detail: string;
 }
 
+interface DataHealthCard {
+    label: string;
+    value: string;
+    tone: string;
+    detail: string;
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -93,6 +100,7 @@ interface DashboardResponse {
     active_profile: ActiveProfile;
     starter_plan: StarterPlan;
     data_sources: DataSourceSummary[];
+    data_health: DataHealthCard[];
     market_briefing: BriefingCard[];
     recommendations: Recommendation[];
 }
@@ -436,6 +444,38 @@ export default function Home() {
                                     </button>
                                 </div>
                                 <p className="mt-4 text-sm leading-6 text-slate-600">{card.detail}</p>
+                            </article>
+                        ))}
+                    </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Data health</p>
+                            <h2 className="mt-2 font-display text-3xl">How fresh and complete the saved data is</h2>
+                        </div>
+                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                            This helps beginners understand whether the current screen is powered by fresh market history, demo financials, or a fuller live dataset.
+                        </p>
+                    </div>
+                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {(dashboard?.data_health ?? []).map((card) => (
+                            <article key={card.label} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-sm text-slate-500">{card.label}</p>
+                                    <span
+                                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                            card.tone === 'caution'
+                                                ? 'bg-amber-100 text-amber-700'
+                                                : 'bg-emerald-100 text-emerald-700'
+                                        }`}
+                                    >
+                                        {card.tone}
+                                    </span>
+                                </div>
+                                <p className="mt-3 font-display text-3xl text-slate-900">{card.value}</p>
+                                <p className="mt-3 text-sm leading-6 text-slate-600">{card.detail}</p>
                             </article>
                         ))}
                     </div>

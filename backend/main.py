@@ -128,6 +128,13 @@ class BriefingCard(BaseModel):
     detail: str
 
 
+class DataHealthCard(BaseModel):
+    label: str
+    value: str
+    tone: str
+    detail: str
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -137,6 +144,7 @@ class DashboardResponse(BaseModel):
     active_profile: ActiveProfile
     starter_plan: StarterPlan
     data_sources: List[DataSourceSummary]
+    data_health: List[DataHealthCard]
     market_briefing: List[BriefingCard]
     recommendations: List[RecommendationCard]
 
@@ -402,6 +410,55 @@ def _build_market_briefing(recommendations: List[RecommendationCard]) -> List[Br
             ticker_code=best_financial.ticker_code,
             ticker_name=best_financial.ticker_name,
             detail=best_financial.financial_snapshot.summary,
+        ),
+    ]
+
+
+def _build_data_health(db: Session, as_of: date) -> List[DataHealthCard]:
+    ticker_count = db.query(models.Ticker).count()
+    price_rows = db.query(models.DailyPrice).count()
+
+    financial_rows = 0
+    demo_financial_rows = 0
+    if _has_financial_table():
+        financial_rows = db.query(models.FinancialStatement).count()
+        demo_financial_rows = (
+            db.query(models.FinancialStatement)
+            .filter(getattr(models.FinancialStatement, "is_demo") == True)
+            .count()
+        )
+
+    real_financial_rows = max(financial_rows - demo_financial_rows, 0)
+    financial_tone = "warm" if real_financial_rows > 0 else "caution"
+
+    return [
+        DataHealthCard(
+            label="Latest price date",
+            value=str(as_of),
+            tone="good",
+            detail="The recommendation engine is currently reading price history through this saved market date.",
+        ),
+        DataHealthCard(
+            label="Tracked stocks",
+            value=str(ticker_count),
+            tone="good",
+            detail=f"The current shortlist is built from {ticker_count} tracked Korean stocks with saved daily price history.",
+        ),
+        DataHealthCard(
+            label="Price observations",
+            value=str(price_rows),
+            tone="good",
+            detail="More saved price rows generally means the technical indicators are less fragile.",
+        ),
+        DataHealthCard(
+            label="Financial coverage",
+            value=f"{financial_rows} rows",
+            tone=financial_tone,
+            detail=(
+                f"{real_financial_rows} live-style rows and {demo_financial_rows} demo rows are currently available."
+                if financial_rows
+                else "No financial statement rows are currently saved."
+            ),
         ),
     ]
 
@@ -743,6 +800,7 @@ def read_dashboard(
         active_profile=_profile_copy(risk_profile, learning_focus),
         starter_plan=starter_plan,
         data_sources=_data_sources_summary(has_financial_data),
+        data_health=_build_data_health(db, as_of),
         market_briefing=_build_market_briefing(recommendations),
         recommendations=recommendations,
     )
