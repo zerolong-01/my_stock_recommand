@@ -301,6 +301,30 @@ export default function Home() {
         dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
     const watchlistItems =
         dashboard?.recommendations.filter((item) => watchlist.includes(item.ticker_code)) ?? [];
+    const selectedRiskOption = riskOptions.find((option) => option.value === riskProfile) ?? riskOptions[1];
+    const selectedFocusOption = focusOptions.find((option) => option.value === learningFocus) ?? focusOptions[1];
+    const planProgress = [
+        { label: 'Comfort picked', done: true },
+        { label: 'Learning goal picked', done: true },
+        { label: 'Budget ready', done: monthlyBudget >= 100000 },
+        { label: 'Stock reviewed', done: Boolean(selectedRecommendation) },
+        { label: 'Watchlist saved', done: watchlistItems.length > 0 },
+    ];
+    const completedPlanSteps = planProgress.filter((step) => step.done).length;
+    const progressPercent = Math.round((completedPlanSteps / planProgress.length) * 100);
+    const roadmapHighlight =
+        watchlistItems[0] ?? selectedRecommendation ?? dashboard?.recommendations[0] ?? null;
+    const nextActions = [
+        watchlistItems.length === 0
+            ? 'Save one or two names to your watchlist so you can compare them later without starting over.'
+            : `You already saved ${watchlistItems.length} stock${watchlistItems.length > 1 ? 's' : ''}. Compare their risk and sector before buying anything.`,
+        selectedRecommendation
+            ? `Review ${selectedRecommendation.ticker_name}'s beginner note and action guide before making a first small order.`
+            : 'Open one recommendation to see the chart, beginner note, and action guide in detail.',
+        monthlyBudget >= 500000
+            ? 'Because your starter budget is higher, keep part of it as cash buffer and avoid putting it all into one theme.'
+            : 'With a smaller starter budget, focus on learning consistency first instead of chasing too many stocks at once.',
+    ];
 
     const toggleWatchlist = (tickerCode: string) => {
         setWatchlist((current) =>
@@ -457,6 +481,120 @@ export default function Home() {
                                     Use this to preview how a first-month basket could look before committing real money.
                                 </p>
                             </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="mt-8 rounded-[32px] border border-[#d7e5de] bg-[linear-gradient(135deg,_rgba(23,63,53,0.98),_rgba(29,75,115,0.95))] p-6 text-white shadow-[0_24px_80px_rgba(23,63,53,0.2)]">
+                    <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+                        <div>
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-sm uppercase tracking-[0.24em] text-white/60">Starter roadmap</p>
+                                    <h2 className="mt-2 font-display text-3xl">Your beginner investing setup at a glance</h2>
+                                </div>
+                                <div className="rounded-[24px] bg-white/10 px-4 py-3 text-right">
+                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Progress</p>
+                                    <p className="mt-2 font-display text-3xl">{progressPercent}%</p>
+                                </div>
+                            </div>
+                            <div className="mt-6 grid gap-4 md:grid-cols-3">
+                                <article className="rounded-[24px] bg-white/10 p-5 backdrop-blur">
+                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Risk comfort</p>
+                                    <p className="mt-3 text-2xl font-semibold">{selectedRiskOption.title}</p>
+                                    <p className="mt-3 text-sm leading-6 text-white/75">{selectedRiskOption.description}</p>
+                                </article>
+                                <article className="rounded-[24px] bg-white/10 p-5 backdrop-blur">
+                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Learning focus</p>
+                                    <p className="mt-3 text-2xl font-semibold">{selectedFocusOption.title}</p>
+                                    <p className="mt-3 text-sm leading-6 text-white/75">{selectedFocusOption.description}</p>
+                                </article>
+                                <article className="rounded-[24px] bg-white/10 p-5 backdrop-blur">
+                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Starter budget</p>
+                                    <p className="mt-3 text-2xl font-semibold">{formatBudgetLabel(monthlyBudget)}</p>
+                                    <p className="mt-3 text-sm leading-6 text-white/75">
+                                        {watchlistItems.length > 0
+                                            ? `Watchlist ready with ${watchlistItems.length} saved idea${watchlistItems.length > 1 ? 's' : ''}.`
+                                            : 'No saved picks yet, so the next good step is to bookmark one candidate.'}
+                                    </p>
+                                </article>
+                            </div>
+                            <div className="mt-6 grid gap-3 md:grid-cols-5">
+                                {planProgress.map((step) => (
+                                    <div
+                                        key={step.label}
+                                        className={`rounded-[20px] px-4 py-4 text-sm ${
+                                            step.done ? 'bg-white text-slate-900' : 'bg-white/8 text-white/70'
+                                        }`}
+                                    >
+                                        <p className="font-medium">{step.label}</p>
+                                        <p className={`mt-2 text-xs uppercase tracking-[0.14em] ${step.done ? 'text-emerald-600' : 'text-white/45'}`}>
+                                            {step.done ? 'Done' : 'Next'}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <article className="rounded-[28px] bg-white/10 p-6 backdrop-blur">
+                                <p className="text-xs uppercase tracking-[0.18em] text-white/55">Primary idea</p>
+                                <h3 className="mt-3 font-display text-3xl">
+                                    {roadmapHighlight?.ticker_name ?? 'Pick a recommendation to begin'}
+                                </h3>
+                                <p className="mt-2 text-sm text-white/70">
+                                    {roadmapHighlight
+                                        ? `${roadmapHighlight.ticker_code} | ${roadmapHighlight.sector ?? 'No sector'}`
+                                        : 'Once you open a recommendation, this area will summarize your most relevant starting point.'}
+                                </p>
+                                <p className="mt-4 text-sm leading-6 text-white/80">
+                                    {roadmapHighlight?.fit_for ??
+                                        'The app will use your selected comfort level, learning focus, and budget to surface a clearer first pick.'}
+                                </p>
+                                {roadmapHighlight && (
+                                    <div className="mt-5 flex flex-wrap gap-2 text-xs">
+                                        <span className="rounded-full bg-[#f4b942] px-3 py-1 font-medium text-slate-900">
+                                            Score {roadmapHighlight.score}
+                                        </span>
+                                        <span className="rounded-full bg-white/10 px-3 py-1 text-white/78">
+                                            Risk {roadmapHighlight.risk_level}
+                                        </span>
+                                        <span className="rounded-full bg-white/10 px-3 py-1 text-white/78">
+                                            20-day {formatPercent(roadmapHighlight.price_change_20d)}
+                                        </span>
+                                    </div>
+                                )}
+                                {roadmapHighlight && (
+                                    <div className="mt-5 flex flex-wrap gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTickerClick(roadmapHighlight.ticker_code)}
+                                            className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#173f35]"
+                                        >
+                                            Open this pick
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleWatchlist(roadmapHighlight.ticker_code)}
+                                            className="rounded-full border border-white/16 px-4 py-2 text-sm font-medium text-white/85"
+                                        >
+                                            {watchlist.includes(roadmapHighlight.ticker_code) ? 'Remove from watchlist' : 'Save for later'}
+                                        </button>
+                                    </div>
+                                )}
+                            </article>
+
+                            <article className="rounded-[28px] bg-[#f8f3e4] p-6 text-slate-900 shadow-[0_10px_30px_rgba(31,43,38,0.08)]">
+                                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">What to do next</p>
+                                <div className="mt-4 space-y-3">
+                                    {nextActions.map((action, index) => (
+                                        <div key={action} className="rounded-[22px] bg-white px-4 py-4">
+                                            <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Step {index + 1}</p>
+                                            <p className="mt-2 text-sm leading-6 text-slate-700">{action}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </article>
                         </div>
                     </div>
                 </section>
