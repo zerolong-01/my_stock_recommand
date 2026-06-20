@@ -1,8 +1,9 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Float, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
-from .database import Base
+import database
 
-class Ticker(Base):
+
+class Ticker(database.Base):
     __tablename__ = "tickers"
 
     code = Column(String, primary_key=True, index=True)
@@ -13,7 +14,8 @@ class Ticker(Base):
     prices = relationship("DailyPrice", back_populates="ticker")
     financials = relationship("FinancialStatement", back_populates="ticker")
 
-class DailyPrice(Base):
+
+class DailyPrice(database.Base):
     __tablename__ = "daily_prices"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -35,7 +37,8 @@ class DailyPrice(Base):
         UniqueConstraint('ticker_code', 'date', name='uix_ticker_date'),
     )
 
-class FinancialStatement(Base):
+
+class FinancialStatement(database.Base):
     __tablename__ = "financial_statements"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -45,5 +48,7 @@ class FinancialStatement(Base):
     revenue = Column(Float)
     operating_income = Column(Float)
     net_income = Column(Float)
+    source = Column(String, nullable=True)
+    is_demo = Column(Boolean, default=False)
 
     ticker = relationship("Ticker", back_populates="financials")

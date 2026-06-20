@@ -1,0 +1,102 @@
+[
+  {
+    "ticker_code": "005930",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 301200000000.0,
+    "operating_income": 42300000000.0,
+    "net_income": 35100000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "000660",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 68400000000.0,
+    "operating_income": 18200000000.0,
+    "net_income": 13900000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "035420",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 10300000000.0,
+    "operating_income": 1520000000.0,
+    "net_income": 1320000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "051910",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 59800000000.0,
+    "operating_income": 3740000000.0,
+    "net_income": 2280000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "035720",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 8410000000.0,
+    "operating_income": 640000000.0,
+    "net_income": 510000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "005380",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 167500000000.0,
+    "operating_income": 12600000000.0,
+    "net_income": 9840000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "006400",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 25400000000.0,
+    "operating_income": 1610000000.0,
+    "net_income": 1210000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "207940",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 4630000000.0,
+    "operating_income": 785000000.0,
+    "net_income": 612000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "068270",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 3420000000.0,
+    "operating_income": 502000000.0,
+    "net_income": 391000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  },
+  {
+    "ticker_code": "028260",
+    "year": 2025,
+    "quarter": 4,
+    "revenue": 48600000000.0,
+    "operating_income": 2940000000.0,
+    "net_income": 2230000000.0,
+    "source": "demo_seed",
+    "is_demo": true
+  }
+]

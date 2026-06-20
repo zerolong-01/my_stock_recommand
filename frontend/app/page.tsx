@@ -65,6 +65,8 @@ interface FinancialSnapshot {
     net_income: number | null;
     year: number | null;
     quarter: number | null;
+    source: string | null;
+    is_demo: boolean;
     summary: string;
 }
 
@@ -648,6 +650,11 @@ export default function Home() {
                                     {selectedRecommendation?.financial_snapshot.summary ??
                                         'Choose a stock to see how financial statement coverage looks.'}
                                 </p>
+                                {selectedRecommendation?.financial_snapshot.source && (
+                                    <div className="mt-4 inline-flex rounded-full bg-white/10 px-3 py-2 text-xs text-white/78">
+                                        {selectedRecommendation.financial_snapshot.is_demo ? 'demo financial seed' : selectedRecommendation.financial_snapshot.source}
+                                    </div>
+                                )}
                                 {selectedRecommendation?.financial_snapshot.year && (
                                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                                         <div className="rounded-2xl bg-white/6 px-4 py-3">

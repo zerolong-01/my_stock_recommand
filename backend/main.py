@@ -109,6 +109,8 @@ class FinancialSnapshot(BaseModel):
     net_income: Optional[float] = None
     year: Optional[int] = None
     quarter: Optional[int] = None
+    source: Optional[str] = None
+    is_demo: bool = False
     summary: str
 
 
@@ -309,6 +311,8 @@ def _get_financial_snapshot(db: Session, ticker_code: str) -> FinancialSnapshot:
         summary_parts.append("Operating profit is positive")
     if statement.net_income and statement.net_income > 0:
         summary_parts.append("Net income is positive")
+    if getattr(statement, "is_demo", False):
+        summary_parts.append("Using demo financial seed data for product walkthroughs")
 
     return FinancialSnapshot(
         revenue=statement.revenue,
@@ -316,6 +320,8 @@ def _get_financial_snapshot(db: Session, ticker_code: str) -> FinancialSnapshot:
         net_income=statement.net_income,
         year=statement.year,
         quarter=statement.quarter,
+        source=getattr(statement, "source", None),
+        is_demo=bool(getattr(statement, "is_demo", False)),
         summary=", ".join(summary_parts) if summary_parts else "Financial statement exists, but the latest snapshot needs a closer manual read.",
     )
 
@@ -345,10 +351,27 @@ def _data_sources_summary(has_financial_data: bool) -> List[DataSourceSummary]:
         DataSourceSummary(
             name="Financial statements",
             status="active" if has_financial_data else "pending",
-            description="Prepared to use revenue and profit data when statements are imported from the pipeline.",
+            description="Uses imported revenue and profit data when available, and can fall back to labeled demo seed data for product walkthroughs.",
         ),
     ]
     return sources
+
+
+def _financial_bonus(financial_snapshot: FinancialSnapshot) -> tuple[float, List[str]]:
+    bonus = 0.0
+    reasons: List[str] = []
+
+    if financial_snapshot.operating_income and financial_snapshot.operating_income > 0:
+        bonus += 5.0
+        reasons.append("Operating profit is positive, which helps beginners avoid purely speculative names.")
+    if financial_snapshot.net_income and financial_snapshot.net_income > 0:
+        bonus += 4.0
+        reasons.append("Net income is positive, adding a basic profitability check to the idea.")
+    if financial_snapshot.revenue and financial_snapshot.revenue > 0:
+        bonus += 3.0
+        reasons.append("Revenue data is available, so this pick is not relying on price action alone.")
+
+    return bonus, reasons
 
 
 def _allocation_weights(risk_profile: RiskProfile) -> List[float]:
@@ -500,7 +523,9 @@ def build_recommendation(
 
     risk_delta, risk_match = _risk_bonus(volatility, risk_profile)
     focus_delta, focus_match = _focus_bonus(ticker, latest, change_20d, volatility, learning_focus)
-    score += risk_delta + focus_delta
+    financial_delta, financial_reasons = _financial_bonus(financial_snapshot)
+    score += risk_delta + focus_delta + financial_delta
+    reasons.extend(financial_reasons)
 
     score = round(min(max(score, 0.0), 99.0), 1)
     risk_level = _risk_level(volatility, latest.rsi)
