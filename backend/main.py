@@ -79,6 +79,28 @@ class ActiveProfile(BaseModel):
     description: str
 
 
+class StarterAllocation(BaseModel):
+    ticker_code: str
+    ticker_name: str
+    sector: Optional[str] = None
+    weight: float
+    target_amount: int
+    estimated_shares: int
+    invested_amount: int
+    current_price: float
+    role: str
+    note: str
+
+
+class StarterPlan(BaseModel):
+    monthly_budget: int
+    estimated_investment: int
+    cash_buffer: int
+    profile_note: str
+    allocations: List[StarterAllocation]
+    tips: List[str]
+
+
 class DashboardResponse(BaseModel):
     as_of: date
     headline: str
@@ -86,6 +108,7 @@ class DashboardResponse(BaseModel):
     starter_steps: List[str]
     summary_cards: List[SummaryCard]
     active_profile: ActiveProfile
+    starter_plan: StarterPlan
     recommendations: List[RecommendationCard]
 
 
@@ -230,6 +253,104 @@ def _profile_copy(risk_profile: RiskProfile, learning_focus: LearningFocus) -> A
         learning_focus=learning_focus,
         label=label,
         description=description,
+    )
+
+
+def _portfolio_profile_note(risk_profile: RiskProfile) -> str:
+    notes = {
+        "steady": "This basket leaves a bit more cash on the side so your first month feels less rushed.",
+        "balanced": "This basket mixes one core name with two supporting ideas so you can compare styles.",
+        "ambitious": "This basket leans a little harder into the top idea while still keeping sector spread.",
+    }
+    return notes[risk_profile]
+
+
+def _allocation_weights(risk_profile: RiskProfile) -> List[float]:
+    weights = {
+        "steady": [0.38, 0.34, 0.18],
+        "balanced": [0.42, 0.30, 0.20],
+        "ambitious": [0.50, 0.27, 0.15],
+    }
+    return weights[risk_profile]
+
+
+def _starter_role(index: int, risk_profile: RiskProfile) -> str:
+    if index == 0:
+        return "Core anchor"
+    if index == 1:
+        return "Second learning slot"
+    if risk_profile == "steady":
+        return "Small observation slot"
+    return "Higher-variance learning slot"
+
+
+def build_starter_plan(
+    recommendations: List[RecommendationCard],
+    monthly_budget: int,
+    risk_profile: RiskProfile,
+) -> StarterPlan:
+    unique_sector_picks: List[RecommendationCard] = []
+    seen_sectors: set[str] = set()
+
+    for recommendation in recommendations:
+        sector_key = recommendation.sector or recommendation.ticker_code
+        if sector_key in seen_sectors:
+            continue
+        seen_sectors.add(sector_key)
+        unique_sector_picks.append(recommendation)
+        if len(unique_sector_picks) == 3:
+            break
+
+    if len(unique_sector_picks) < 3:
+        for recommendation in recommendations:
+            if recommendation.ticker_code in [pick.ticker_code for pick in unique_sector_picks]:
+                continue
+            unique_sector_picks.append(recommendation)
+            if len(unique_sector_picks) == 3:
+                break
+
+    weights = _allocation_weights(risk_profile)[: len(unique_sector_picks)]
+    weight_total = sum(weights) or 1.0
+    normalized_weights = [weight / weight_total for weight in weights]
+
+    allocations: List[StarterAllocation] = []
+    invested_total = 0
+
+    for index, (recommendation, weight) in enumerate(zip(unique_sector_picks, normalized_weights)):
+        target_amount = int(monthly_budget * weight)
+        estimated_shares = max(int(target_amount // recommendation.current_price), 0)
+        invested_amount = int(estimated_shares * recommendation.current_price)
+        invested_total += invested_amount
+
+        allocations.append(
+            StarterAllocation(
+                ticker_code=recommendation.ticker_code,
+                ticker_name=recommendation.ticker_name,
+                sector=recommendation.sector,
+                weight=round(weight * 100, 1),
+                target_amount=target_amount,
+                estimated_shares=estimated_shares,
+                invested_amount=invested_amount,
+                current_price=recommendation.current_price,
+                role=_starter_role(index, risk_profile),
+                note=recommendation.profile_match,
+            )
+        )
+
+    cash_buffer = max(monthly_budget - invested_total, 0)
+    tips = [
+        "A small cash buffer is healthy for beginners because it lowers the pressure to go all-in at once.",
+        "If one stock feels hard to understand, start by buying only the core anchor and keep the rest as cash.",
+        "Try reviewing this basket once a week instead of reacting to every daily move.",
+    ]
+
+    return StarterPlan(
+        monthly_budget=monthly_budget,
+        estimated_investment=invested_total,
+        cash_buffer=cash_buffer,
+        profile_note=_portfolio_profile_note(risk_profile),
+        allocations=allocations,
+        tips=tips,
     )
 
 
@@ -391,6 +512,7 @@ def read_recommendations(
 def read_dashboard(
     risk_profile: RiskProfile = Query(default="balanced"),
     learning_focus: LearningFocus = Query(default="trend"),
+    monthly_budget: int = Query(default=300000, ge=100000, le=5000000),
     db: Session = Depends(get_db),
 ) -> DashboardResponse:
     recommendations = get_ranked_recommendations(
@@ -407,6 +529,11 @@ def read_dashboard(
     average_score = round(mean(item.score for item in recommendations), 1)
     low_risk_count = len([item for item in recommendations if item.risk_level == "Low"])
     positive_trend_count = len([item for item in recommendations if item.price_change_20d > 0])
+    starter_plan = build_starter_plan(
+        recommendations=recommendations,
+        monthly_budget=monthly_budget,
+        risk_profile=risk_profile,
+    )
 
     return DashboardResponse(
         as_of=as_of,
@@ -444,5 +571,6 @@ def read_dashboard(
             ),
         ],
         active_profile=_profile_copy(risk_profile, learning_focus),
+        starter_plan=starter_plan,
         recommendations=recommendations,
     )

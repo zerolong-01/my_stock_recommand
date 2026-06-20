@@ -36,6 +36,28 @@ interface ActiveProfile {
     description: string;
 }
 
+interface StarterAllocation {
+    ticker_code: string;
+    ticker_name: string;
+    sector: string | null;
+    weight: number;
+    target_amount: number;
+    estimated_shares: number;
+    invested_amount: number;
+    current_price: number;
+    role: string;
+    note: string;
+}
+
+interface StarterPlan {
+    monthly_budget: number;
+    estimated_investment: number;
+    cash_buffer: number;
+    profile_note: string;
+    allocations: StarterAllocation[];
+    tips: string[];
+}
+
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -43,6 +65,7 @@ interface DashboardResponse {
     starter_steps: string[];
     summary_cards: SummaryCard[];
     active_profile: ActiveProfile;
+    starter_plan: StarterPlan;
     recommendations: Recommendation[];
 }
 
@@ -107,6 +130,10 @@ function formatPrice(value: number) {
     return new Intl.NumberFormat('ko-KR').format(Math.round(value));
 }
 
+function formatBudgetLabel(value: number) {
+    return `${new Intl.NumberFormat('ko-KR').format(value)} KRW`;
+}
+
 function formatPercent(value: number) {
     const sign = value > 0 ? '+' : '';
     return `${sign}${value.toFixed(1)}%`;
@@ -120,15 +147,16 @@ export default function Home() {
     const [chartLoading, setChartLoading] = useState(false);
     const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced');
     const [learningFocus, setLearningFocus] = useState<LearningFocus>('trend');
+    const [monthlyBudget, setMonthlyBudget] = useState(300000);
 
     useEffect(() => {
-        fetchDashboard(riskProfile, learningFocus);
-    }, [riskProfile, learningFocus]);
+        fetchDashboard(riskProfile, learningFocus, monthlyBudget);
+    }, [riskProfile, learningFocus, monthlyBudget]);
 
-    const fetchDashboard = (risk: RiskProfile, focus: LearningFocus) => {
+    const fetchDashboard = (risk: RiskProfile, focus: LearningFocus, budget: number) => {
         setLoading(true);
 
-        fetch(`${API_BASE}/dashboard?risk_profile=${risk}&learning_focus=${focus}`)
+        fetch(`${API_BASE}/dashboard?risk_profile=${risk}&learning_focus=${focus}&monthly_budget=${budget}`)
             .then((res) => res.json())
             .then((data: DashboardResponse) => {
                 setDashboard(data);
@@ -231,7 +259,7 @@ export default function Home() {
                 </div>
 
                 <section className="mt-8 rounded-[32px] border border-white/70 bg-white/78 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.1)] backdrop-blur">
-                    <div className="grid gap-6 lg:grid-cols-2">
+                    <div className="grid gap-6 xl:grid-cols-[1fr_1fr_0.92fr]">
                         <div>
                             <p className="text-sm uppercase tracking-[0.24em] text-slate-400">1. Risk comfort</p>
                             <div className="mt-4 grid gap-3">
@@ -283,6 +311,49 @@ export default function Home() {
                                 })}
                             </div>
                         </div>
+
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">3. Monthly starter budget</p>
+                            <div className="mt-4 rounded-[24px] border border-slate-200 bg-[#fcfaf5] p-5">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm text-slate-500">Budget</p>
+                                        <p className="mt-2 font-display text-3xl">{formatBudgetLabel(monthlyBudget)}</p>
+                                    </div>
+                                    <div className="rounded-full bg-[#173f35] px-4 py-2 text-sm text-white">
+                                        Starter basket ready
+                                    </div>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={100000}
+                                    max={1000000}
+                                    step={50000}
+                                    value={monthlyBudget}
+                                    onChange={(event) => setMonthlyBudget(Number(event.target.value))}
+                                    className="mt-5 w-full accent-[#173f35]"
+                                />
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    {[200000, 300000, 500000, 1000000].map((preset) => (
+                                        <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => setMonthlyBudget(preset)}
+                                            className={`rounded-full px-4 py-2 text-sm transition ${
+                                                monthlyBudget === preset
+                                                    ? 'bg-[#173f35] text-white'
+                                                    : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {formatBudgetLabel(preset)}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="mt-4 text-sm leading-6 text-slate-600">
+                                    Use this to preview how a first-month basket could look before committing real money.
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -297,6 +368,73 @@ export default function Home() {
                             <p className="mt-3 text-sm leading-6 text-slate-600">{card.description}</p>
                         </article>
                     ))}
+                </section>
+
+                <section className="mt-8 rounded-[32px] bg-[#173f35] p-6 text-white shadow-[0_24px_80px_rgba(16,45,38,0.2)]">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <p className="text-sm uppercase tracking-[0.24em] text-white/60">Starter basket</p>
+                            <h2 className="mt-2 font-display text-3xl">Your first-month sample plan</h2>
+                            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">
+                                {dashboard?.starter_plan.profile_note ??
+                                    'Pick a profile and budget to generate a sample starter plan.'}
+                            </p>
+                        </div>
+                        <div className="rounded-[24px] border border-white/10 bg-white/8 px-5 py-4 text-right">
+                            <p className="text-xs text-white/60">Estimated investment</p>
+                            <p className="mt-2 font-display text-3xl">
+                                {formatBudgetLabel(dashboard?.starter_plan.estimated_investment ?? 0)}
+                            </p>
+                            <p className="mt-2 text-sm text-white/70">
+                                Cash buffer {formatBudgetLabel(dashboard?.starter_plan.cash_buffer ?? 0)}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                        <div className="grid gap-4 md:grid-cols-3">
+                            {(dashboard?.starter_plan.allocations ?? []).map((allocation) => (
+                                <article key={allocation.ticker_code} className="rounded-[28px] bg-white/8 p-5">
+                                    <p className="text-xs uppercase tracking-[0.18em] text-[#f4b942]">{allocation.role}</p>
+                                    <h3 className="mt-3 text-2xl font-semibold">{allocation.ticker_name}</h3>
+                                    <p className="mt-1 text-sm text-white/65">
+                                        {allocation.ticker_code} | {allocation.sector ?? 'No sector'}
+                                    </p>
+                                    <div className="mt-5 grid gap-3">
+                                        <div>
+                                            <p className="text-xs text-white/55">Weight</p>
+                                            <p className="mt-1 text-lg font-semibold">{allocation.weight}%</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-white/55">Target amount</p>
+                                            <p className="mt-1 text-lg font-semibold">{formatBudgetLabel(allocation.target_amount)}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-white/55">Estimated shares</p>
+                                            <p className="mt-1 text-lg font-semibold">{allocation.estimated_shares}</p>
+                                        </div>
+                                    </div>
+                                    <p className="mt-4 text-sm leading-6 text-white/82">{allocation.note}</p>
+                                </article>
+                            ))}
+                        </div>
+
+                        <div className="space-y-4 rounded-[28px] bg-white/8 p-5">
+                            <div>
+                                <p className="text-sm text-white/60">Why this basket helps beginners</p>
+                                <p className="mt-3 text-sm leading-7 text-white/85">
+                                    It spreads your first month across a few roles so you are not forced to learn everything from one stock.
+                                </p>
+                            </div>
+                            <div className="space-y-3">
+                                {(dashboard?.starter_plan.tips ?? []).map((tip) => (
+                                    <div key={tip} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/84">
+                                        {tip}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <section className="mt-10 grid gap-8 xl:grid-cols-[0.92fr_1.08fr]">
@@ -342,7 +480,7 @@ export default function Home() {
                                                     <div>
                                                         <p className="text-xl font-semibold">{item.ticker_name}</p>
                                                         <p className={`text-sm ${active ? 'text-white/70' : 'text-slate-500'}`}>
-                                                            {item.ticker_code} · {item.market}
+                                                            {item.ticker_code} | {item.market}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -383,7 +521,7 @@ export default function Home() {
                                         {selectedRecommendation?.ticker_name ?? 'Select a stock'}
                                     </h2>
                                     <p className="mt-2 text-sm text-slate-500">
-                                        {selectedRecommendation?.sector ?? 'No sector data'} · {selectedRecommendation?.ticker_code ?? '-'}
+                                        {selectedRecommendation?.sector ?? 'No sector data'} | {selectedRecommendation?.ticker_code ?? '-'}
                                     </p>
                                 </div>
                                 {selectedRecommendation && (
