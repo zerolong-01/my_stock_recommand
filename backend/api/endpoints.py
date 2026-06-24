@@ -15,3 +15,27 @@ def read_tickers(
     db: Session = Depends(database.get_db),
 ) -> list[models.Ticker]:
     return db.query(models.Ticker).order_by(models.Ticker.market, models.Ticker.code).offset(skip).limit(limit).all()
+
+
+@router.get("/prices/{ticker_code}", response_model=list[main.PricePoint])
+def read_prices(
+    ticker_code: str,
+    limit: int = Query(default=90, ge=1, le=365),
+    db: Session = Depends(database.get_db),
+) -> list[models.DailyPrice]:
+    return main.read_prices(ticker_code=ticker_code, limit=limit, db=db)
+
+
+@router.get("/recommendations", response_model=list[main.RecommendationCard])
+def read_recommendations(
+    limit: int = Query(default=10, ge=1, le=50),
+    risk_profile: main.RiskProfile = Query(default="balanced"),
+    learning_focus: main.LearningFocus = Query(default="trend"),
+    db: Session = Depends(database.get_db),
+) -> list[main.RecommendationCard]:
+    return main.get_ranked_recommendations(
+        db=db,
+        limit=limit,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
