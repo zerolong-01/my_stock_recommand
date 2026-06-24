@@ -12,3 +12,4 @@ backend/__pycache__/
 frontend/tsconfig.tsbuildinfo
 frontend/.eslintcache
 *.log
+.tmp-matplotlib/
