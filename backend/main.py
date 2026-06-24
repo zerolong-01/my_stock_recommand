@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
+from backend.analysis import recommendation_engine
 from backend import database, models
 
 
@@ -43,6 +44,16 @@ class PricePoint(BaseModel):
     volume: float
     rsi: Optional[float] = None
     macd: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TickerSummary(BaseModel):
+    code: str
+    name: str
+    market: str
+    sector: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -184,52 +195,6 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
-
-
-def _pct_change(current: float, previous: float) -> float:
-    if previous == 0:
-        return 0.0
-    return round(((current - previous) / previous) * 100, 1)
-
-
-def _risk_level(volatility: float, rsi: Optional[float]) -> str:
-    if volatility >= 4.5 or (rsi is not None and rsi >= 70):
-        return "High"
-    if volatility >= 2.5 or (rsi is not None and rsi <= 35):
-        return "Medium"
-    return "Low"
-
-
-def _fit_for(score: float, volatility: float) -> str:
-    if score >= 78 and volatility < 3:
-        return "Best for a beginner who wants a calm first stock."
-    if score >= 68:
-        return "Best for a beginner comparing a few candidates side by side."
-    return "Best as a watchlist idea while you learn how signals move."
-
-
-def _badge(score: float) -> str:
-    if score >= 80:
-        return "Strong starter pick"
-    if score >= 70:
-        return "Worth a closer look"
-    return "Watchlist candidate"
-
-
-def _action_guide(score: float, volatility: float) -> str:
-    if score >= 80 and volatility < 3.5:
-        return "Consider splitting your first buy into two or three smaller entries."
-    if volatility >= 4:
-        return "This one moves quickly, so it is safer to study it with a small amount first."
-    return "Check earnings dates and recent news before making any first-buy decision."
-
-
-def _beginner_note(rsi: Optional[float], macd: Optional[float]) -> str:
-    if rsi is not None and rsi < 35:
-        return "The stock recently cooled down, which can feel less intimidating for a first-time investor."
-    if macd is not None and macd > 0:
-        return "The short-term trend is still intact, so it is useful for learning how momentum behaves."
-    return "Treat this as a learning candidate first and a buy decision second."
 
 
 def _focus_bonus(
@@ -732,10 +697,9 @@ def build_recommendation(
     latest = prices[0]
     oldest = prices[-1]
     closes = [price.close for price in prices]
-    volumes = [price.volume for price in prices[:10]]
-    avg_volume = mean(volumes)
-    volatility = round(((max(closes) - min(closes)) / latest.close) * 100, 1)
-    change_20d = _pct_change(latest.close, oldest.close)
+    avg_volume = recommendation_engine.average_recent_volume(prices)
+    volatility = recommendation_engine.calculate_volatility(closes, latest.close)
+    change_20d = recommendation_engine.pct_change(latest.close, oldest.close)
 
     score = 50.0
     reasons: List[str] = []
@@ -787,7 +751,7 @@ def build_recommendation(
     reasons.extend(financial_reasons)
 
     score = round(min(max(score, 0.0), 99.0), 1)
-    risk_level = _risk_level(volatility, latest.rsi)
+    risk_level = recommendation_engine.risk_level(volatility, latest.rsi)
 
     return RecommendationCard(
         ticker_code=ticker.code,
@@ -795,15 +759,15 @@ def build_recommendation(
         market=ticker.market,
         sector=ticker.sector,
         score=score,
-        badge=_badge(score),
-        fit_for=_fit_for(score, volatility),
+        badge=recommendation_engine.badge(score),
+        fit_for=recommendation_engine.fit_for(score, volatility),
         risk_level=risk_level,
         current_price=latest.close,
         price_change_20d=change_20d,
         volatility=volatility,
         reasons=reasons[:4],
-        beginner_note=_beginner_note(latest.rsi, latest.macd),
-        action_guide=_action_guide(score, volatility),
+        beginner_note=recommendation_engine.beginner_note(latest.rsi, latest.macd),
+        action_guide=recommendation_engine.action_guide(score, volatility),
         profile_match=f"{risk_match} {focus_match}",
         financial_snapshot=financial_snapshot,
     )
@@ -826,7 +790,7 @@ def get_ranked_recommendations(
             .limit(20)
             .all()
         )
-        if len(prices) < 10:
+        if not recommendation_engine.history_is_usable(prices):
             continue
         financial_snapshot = _get_financial_snapshot(db, ticker.code)
         recommendations.append(
@@ -865,6 +829,15 @@ def read_prices(ticker_code: str, limit: int = 90, db: Session = Depends(get_db)
     if not prices:
         raise HTTPException(status_code=404, detail="Prices not found")
     return prices
+
+
+@app.get("/tickers", response_model=List[TickerSummary])
+def read_tickers(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> List[models.Ticker]:
+    return db.query(models.Ticker).order_by(models.Ticker.market, models.Ticker.code).offset(skip).limit(limit).all()
 
 
 @app.get("/recommendations", response_model=List[RecommendationCard])

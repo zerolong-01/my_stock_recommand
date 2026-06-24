@@ -3,3 +3,12 @@ frontend/.next/
 backend/__pycache__/
 **/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+frontend/tsconfig.tsbuildinfo
+frontend/.eslintcache
+*.log
