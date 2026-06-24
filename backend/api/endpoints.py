@@ -17,9 +17,10 @@ router = APIRouter()
 def read_tickers(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
+    query: str | None = Query(default=None, min_length=1, max_length=50),
     db: Session = Depends(database.get_db),
 ) -> list[models.Ticker]:
-    return db.query(models.Ticker).order_by(models.Ticker.market, models.Ticker.code).offset(skip).limit(limit).all()
+    return main.read_tickers(skip=skip, limit=limit, query=query, db=db)
 
 
 @router.get("/prices/{ticker_code}", response_model=list[main.PricePoint])

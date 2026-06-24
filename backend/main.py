@@ -7,7 +7,7 @@ from typing import Generator, List, Literal, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import inspect
+from sqlalchemy import inspect, or_
 from sqlalchemy.orm import Session
 
 if __package__ == "backend":
@@ -948,9 +948,21 @@ def read_prices(ticker_code: str, limit: int = 90, db: Session = Depends(get_db)
 def read_tickers(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
+    query: Optional[str] = Query(default=None, min_length=1, max_length=50),
     db: Session = Depends(get_db),
 ) -> List[models.Ticker]:
-    return db.query(models.Ticker).order_by(models.Ticker.market, models.Ticker.code).offset(skip).limit(limit).all()
+    ticker_query = db.query(models.Ticker)
+    if query:
+        search_term = query.strip()
+        if search_term:
+            ticker_query = ticker_query.filter(
+                or_(
+                    models.Ticker.code.contains(search_term),
+                    models.Ticker.name.contains(search_term),
+                    models.Ticker.sector.contains(search_term),
+                )
+            )
+    return ticker_query.order_by(models.Ticker.market, models.Ticker.code).offset(skip).limit(limit).all()
 
 
 @app.get("/recommendations", response_model=List[RecommendationCard])

@@ -158,6 +158,24 @@ interface ChartData {
     close: number;
 }
 
+interface TickerSearchResult {
+    code: string;
+    name: string;
+    market: string;
+    sector: string | null;
+}
+
+interface WatchlistSnapshot {
+    ticker_code: string;
+    ticker_name: string;
+    market: string;
+    sector: string | null;
+    score?: number;
+    risk_level?: string;
+    price_change_20d?: number;
+    fit_for?: string;
+}
+
 type RiskProfile = 'steady' | 'balanced' | 'ambitious';
 type LearningFocus = 'dividend' | 'trend' | 'value';
 type ShortlistFilter = 'all' | 'lower-risk' | 'financial-ready' | 'saved';
@@ -241,6 +259,10 @@ export default function Home() {
     const [copiedReport, setCopiedReport] = useState(false);
     const [compareData, setCompareData] = useState<CompareResponse | null>(null);
     const [compareLoading, setCompareLoading] = useState(false);
+    const [tickerSearch, setTickerSearch] = useState('');
+    const [tickerSearchResults, setTickerSearchResults] = useState<TickerSearchResult[]>([]);
+    const [tickerSearchLoading, setTickerSearchLoading] = useState(false);
+    const [watchlistCatalog, setWatchlistCatalog] = useState<Record<string, WatchlistSnapshot>>({});
 
     useEffect(() => {
         const saved = window.localStorage.getItem('stock-starter-watchlist');
@@ -309,6 +331,104 @@ export default function Home() {
             });
     }, [dashboard, watchlist, selectedTicker, riskProfile, learningFocus]);
 
+    useEffect(() => {
+        if (!dashboard) {
+            return;
+        }
+
+        setWatchlistCatalog((current) => {
+            const next = { ...current };
+            dashboard.recommendations.forEach((item) => {
+                next[item.ticker_code] = {
+                    ticker_code: item.ticker_code,
+                    ticker_name: item.ticker_name,
+                    market: item.market,
+                    sector: item.sector,
+                    score: item.score,
+                    risk_level: item.risk_level,
+                    price_change_20d: item.price_change_20d,
+                    fit_for: item.fit_for,
+                };
+            });
+            return next;
+        });
+    }, [dashboard]);
+
+    useEffect(() => {
+        if (!compareData) {
+            return;
+        }
+
+        setWatchlistCatalog((current) => {
+            const next = { ...current };
+            compareData.rows.forEach((item) => {
+                next[item.ticker_code] = {
+                    ticker_code: item.ticker_code,
+                    ticker_name: item.ticker_name,
+                    market: item.market,
+                    sector: item.sector,
+                    score: item.score,
+                    risk_level: item.risk_level,
+                    price_change_20d: item.price_change_20d,
+                };
+            });
+            return next;
+        });
+    }, [compareData]);
+
+    useEffect(() => {
+        const searchTerm = tickerSearch.trim();
+        if (searchTerm.length < 1) {
+            setTickerSearchResults([]);
+            setTickerSearchLoading(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => {
+            setTickerSearchLoading(true);
+
+            fetch(`${API_BASE}/tickers?limit=8&query=${encodeURIComponent(searchTerm)}`, {
+                signal: controller.signal,
+            })
+                .then((res) => {
+                    if (!res.ok) {
+                        throw new Error(`Ticker search failed with status ${res.status}`);
+                    }
+                    return res.json();
+                })
+                .then((data: TickerSearchResult[]) => {
+                    setTickerSearchResults(data);
+                    setWatchlistCatalog((current) => {
+                        const next = { ...current };
+                        data.forEach((item) => {
+                            next[item.code] = {
+                                ticker_code: item.code,
+                                ticker_name: item.name,
+                                market: item.market,
+                                sector: item.sector,
+                            };
+                        });
+                        return next;
+                    });
+                    setTickerSearchLoading(false);
+                })
+                .catch((error) => {
+                    if (error instanceof DOMException && error.name === 'AbortError') {
+                        return;
+                    }
+                    console.error('Failed to search tickers:', error);
+                    setTickerSearchResults([]);
+                    setTickerSearchLoading(false);
+                });
+        }, 250);
+
+        return () => {
+            controller.abort();
+            window.clearTimeout(timer);
+        };
+    }, [tickerSearch]);
+
     const fetchDashboard = (risk: RiskProfile, focus: LearningFocus, budget: number) => {
         setLoading(true);
 
@@ -371,6 +491,9 @@ export default function Home() {
         dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
     const watchlistItems =
         dashboard?.recommendations.filter((item) => watchlist.includes(item.ticker_code)) ?? [];
+    const watchlistCards = watchlist
+        .map((tickerCode) => watchlistCatalog[tickerCode])
+        .filter((item): item is WatchlistSnapshot => Boolean(item));
     const compareRows: Array<CompareRow | CompareDetailRow> = compareData?.rows ?? dashboard?.compare_rows ?? [];
     const selectedRiskOption = riskOptions.find((option) => option.value === riskProfile) ?? riskOptions[1];
     const selectedFocusOption = focusOptions.find((option) => option.value === learningFocus) ?? focusOptions[1];
@@ -379,16 +502,16 @@ export default function Home() {
         { label: 'Learning goal picked', done: true },
         { label: 'Budget ready', done: monthlyBudget >= 100000 },
         { label: 'Stock reviewed', done: Boolean(selectedRecommendation) },
-        { label: 'Watchlist saved', done: watchlistItems.length > 0 },
+        { label: 'Watchlist saved', done: watchlist.length > 0 },
     ];
     const completedPlanSteps = planProgress.filter((step) => step.done).length;
     const progressPercent = Math.round((completedPlanSteps / planProgress.length) * 100);
     const roadmapHighlight =
         watchlistItems[0] ?? selectedRecommendation ?? dashboard?.recommendations[0] ?? null;
     const nextActions = [
-        watchlistItems.length === 0
+        watchlist.length === 0
             ? 'Save one or two names to your watchlist so you can compare them later without starting over.'
-            : `You already saved ${watchlistItems.length} stock${watchlistItems.length > 1 ? 's' : ''}. Compare their risk and sector before buying anything.`,
+            : `You already saved ${watchlist.length} stock${watchlist.length > 1 ? 's' : ''}. Compare their risk and sector before buying anything.`,
         selectedRecommendation
             ? `Review ${selectedRecommendation.ticker_name}'s beginner note and action guide before making a first small order.`
             : 'Open one recommendation to see the chart, beginner note, and action guide in detail.',
@@ -478,8 +601,8 @@ export default function Home() {
         roadmapHighlight
             ? `Primary idea: ${roadmapHighlight.ticker_name} (${roadmapHighlight.ticker_code}) with score ${roadmapHighlight.score} and risk ${roadmapHighlight.risk_level}.`
             : 'Primary idea: not selected yet.',
-        watchlistItems.length > 0
-            ? `Saved watchlist: ${watchlistItems.map((item) => item.ticker_code).join(', ')}`
+        watchlistCards.length > 0
+            ? `Saved watchlist: ${watchlistCards.map((item) => item.ticker_code).join(', ')}`
             : 'Saved watchlist: none yet.',
         nextActions[0],
         nextActions[1],
@@ -519,7 +642,14 @@ export default function Home() {
           ]
         : [];
 
-    const toggleWatchlist = (tickerCode: string) => {
+    const toggleWatchlist = (tickerCode: string, snapshot?: WatchlistSnapshot) => {
+        if (snapshot) {
+            setWatchlistCatalog((current) => ({
+                ...current,
+                [tickerCode]: snapshot,
+            }));
+        }
+
         setWatchlist((current) =>
             current.includes(tickerCode)
                 ? current.filter((code) => code !== tickerCode)
@@ -716,8 +846,8 @@ export default function Home() {
                                     <p className="text-xs uppercase tracking-[0.18em] text-white/55">Starter budget</p>
                                     <p className="mt-3 text-2xl font-semibold">{formatBudgetLabel(monthlyBudget)}</p>
                                     <p className="mt-3 text-sm leading-6 text-white/75">
-                                        {watchlistItems.length > 0
-                                            ? `Watchlist ready with ${watchlistItems.length} saved idea${watchlistItems.length > 1 ? 's' : ''}.`
+                                        {watchlist.length > 0
+                                            ? `Watchlist ready with ${watchlist.length} saved idea${watchlist.length > 1 ? 's' : ''}.`
                                             : 'No saved picks yet, so the next good step is to bookmark one candidate.'}
                                     </p>
                                 </article>
@@ -839,8 +969,8 @@ export default function Home() {
                                 <div className="rounded-[22px] bg-white px-4 py-4">
                                     <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Saved ideas</p>
                                     <p className="mt-2 text-sm leading-6 text-slate-700">
-                                        {watchlistItems.length > 0
-                                            ? `${watchlistItems.length} stock${watchlistItems.length > 1 ? 's are' : ' is'} saved for later review: ${watchlistItems
+                                        {watchlistCards.length > 0
+                                            ? `${watchlistCards.length} stock${watchlistCards.length > 1 ? 's are' : ' is'} saved for later review: ${watchlistCards
                                                   .map((item) => item.ticker_code)
                                                   .join(', ')}.`
                                             : 'No stocks saved yet, so the watchlist can still be used as your compare-later tray.'}
@@ -913,37 +1043,109 @@ export default function Home() {
                             Keep two or three stocks here while you learn the patterns. It helps beginners compare ideas without feeling rushed.
                         </p>
                     </div>
-                    {watchlistItems.length > 0 ? (
+                    <div className="mt-6 rounded-[26px] border border-white/12 bg-white/6 p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-semibold text-white">Add any tracked stock</p>
+                                <p className="mt-1 text-sm text-white/65">
+                                    Search by code, company name, or sector to compare a saved pick even if it is outside today&apos;s top shortlist.
+                                </p>
+                            </div>
+                            <div className="min-w-[260px] flex-1 md:max-w-md">
+                                <input
+                                    type="text"
+                                    value={tickerSearch}
+                                    onChange={(event) => setTickerSearch(event.target.value)}
+                                    placeholder="Search 005930, Samsung, semiconductor..."
+                                    className="w-full rounded-2xl border border-white/14 bg-white/10 px-4 py-3 text-sm text-white placeholder:text-white/45 focus:border-[#f4b942] focus:outline-none"
+                                />
+                            </div>
+                        </div>
+                        {(tickerSearchLoading || tickerSearchResults.length > 0 || tickerSearch.trim().length > 0) && (
+                            <div className="mt-4 space-y-2">
+                                {tickerSearchLoading && <div className="text-sm text-white/60">Searching tracked stocks.</div>}
+                                {!tickerSearchLoading && tickerSearch.trim().length > 0 && tickerSearchResults.length === 0 && (
+                                    <div className="text-sm text-white/60">No tracked stocks matched that search yet.</div>
+                                )}
+                                {tickerSearchResults.map((item) => (
+                                    <div
+                                        key={item.code}
+                                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/8 px-4 py-3"
+                                    >
+                                        <div>
+                                            <p className="font-medium text-white">
+                                                {item.name} <span className="text-white/50">({item.code})</span>
+                                            </p>
+                                            <p className="text-sm text-white/60">
+                                                {item.market} | {item.sector ?? 'No sector data'}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                toggleWatchlist(item.code, {
+                                                    ticker_code: item.code,
+                                                    ticker_name: item.name,
+                                                    market: item.market,
+                                                    sector: item.sector,
+                                                })
+                                            }
+                                            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                                                watchlist.includes(item.code)
+                                                    ? 'border border-white/20 bg-transparent text-white/80'
+                                                    : 'bg-[#f4b942] text-slate-900'
+                                            }`}
+                                        >
+                                            {watchlist.includes(item.code) ? 'Remove' : 'Add to watchlist'}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {watchlistCards.length > 0 ? (
                         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            {watchlistItems.map((item) => (
+                            {watchlistCards.map((item) => (
                                 <article key={item.ticker_code} className="rounded-[26px] bg-white/10 p-5 backdrop-blur">
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-xs uppercase tracking-[0.18em] text-white/55">Saved pick</p>
                                             <h3 className="mt-2 text-2xl font-semibold">{item.ticker_name}</h3>
                                             <p className="mt-1 text-sm text-white/65">
-                                                {item.ticker_code} | {item.sector ?? 'No sector'}
+                                                {item.ticker_code} | {item.market} | {item.sector ?? 'No sector'}
                                             </p>
                                         </div>
-                                        <span className="rounded-full bg-[#f4b942] px-3 py-1 text-xs font-medium text-slate-900">
-                                            Score {item.score}
-                                        </span>
+                                        {typeof item.score === 'number' ? (
+                                            <span className="rounded-full bg-[#f4b942] px-3 py-1 text-xs font-medium text-slate-900">
+                                                Score {item.score}
+                                            </span>
+                                        ) : (
+                                            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/75">
+                                                Compare-ready
+                                            </span>
+                                        )}
                                     </div>
-                                    <p className="mt-4 text-sm leading-6 text-white/78">{item.fit_for}</p>
+                                    <p className="mt-4 text-sm leading-6 text-white/78">
+                                        {item.fit_for ?? 'Saved for side-by-side review even if it is outside the current top recommendation list.'}
+                                    </p>
                                     <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/70">
-                                        <span className="rounded-full bg-white/10 px-3 py-1">Risk {item.risk_level}</span>
-                                        <span className="rounded-full bg-white/10 px-3 py-1">
-                                            20-day {formatPercent(item.price_change_20d)}
-                                        </span>
+                                        {item.risk_level && <span className="rounded-full bg-white/10 px-3 py-1">Risk {item.risk_level}</span>}
+                                        {typeof item.price_change_20d === "number" && (
+                                            <span className="rounded-full bg-white/10 px-3 py-1">
+                                                20-day {formatPercent(item.price_change_20d)}
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="mt-5 flex flex-wrap gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleTickerClick(item.ticker_code)}
-                                            className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#173f35]"
-                                        >
-                                            Open detail
-                                        </button>
+                                        {dashboard?.recommendations.some((recommendation) => recommendation.ticker_code === item.ticker_code) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleTickerClick(item.ticker_code)}
+                                                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#173f35]"
+                                            >
+                                                Open detail
+                                            </button>
+                                        )}
                                         <button
                                             type="button"
                                             onClick={() => toggleWatchlist(item.ticker_code)}
@@ -957,7 +1159,7 @@ export default function Home() {
                         </div>
                     ) : (
                         <div className="mt-6 rounded-[26px] border border-dashed border-white/20 bg-white/6 p-6 text-sm leading-6 text-white/70">
-                            Your watchlist is empty. Tap the save button on a recommendation to keep a few beginner-friendly ideas in one place.
+                            Your watchlist is empty. Tap the save button on a recommendation or search for a stock code directly to build a compare-later tray.
                         </div>
                     )}
                 </section>
