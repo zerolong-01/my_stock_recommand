@@ -44,3 +44,18 @@ def read_recommendations(
         risk_profile=risk_profile,
         learning_focus=learning_focus,
     )
+
+
+@router.get("/compare", response_model=main.CompareResponse)
+def read_compare(
+    ticker_codes: list[str] = Query(...),
+    risk_profile: main.RiskProfile = Query(default="balanced"),
+    learning_focus: main.LearningFocus = Query(default="trend"),
+    db: Session = Depends(database.get_db),
+) -> main.CompareResponse:
+    return main.read_compare(
+        ticker_codes=ticker_codes,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+        db=db,
+    )

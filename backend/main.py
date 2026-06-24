@@ -168,6 +168,14 @@ class CompareRow(BaseModel):
     financial_label: str
 
 
+class CompareDetailRow(CompareRow):
+    market: str
+    current_price: float
+    badge: str
+    reasons: List[str]
+    profile_match: str
+
+
 class SectorExposureCard(BaseModel):
     sector: str
     shortlist_count: int
@@ -198,6 +206,14 @@ class DashboardResponse(BaseModel):
     sector_exposure: List[SectorExposureCard]
     risk_alerts: List[RiskAlertCard]
     recommendations: List[RecommendationCard]
+
+
+class CompareResponse(BaseModel):
+    requested_codes: List[str]
+    matched_count: int
+    missing_codes: List[str]
+    summary: str
+    rows: List[CompareDetailRow]
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -471,12 +487,7 @@ def _build_data_health(db: Session, as_of: date) -> List[DataHealthCard]:
 def _build_compare_rows(recommendations: List[RecommendationCard], limit: int = 3) -> List[CompareRow]:
     rows: List[CompareRow] = []
     for item in recommendations[:limit]:
-        if item.financial_snapshot.year and item.financial_snapshot.operating_income and item.financial_snapshot.operating_income > 0:
-            financial_label = "Profit data ready"
-        elif item.financial_snapshot.year:
-            financial_label = "Statement saved"
-        else:
-            financial_label = "No statement yet"
+        financial_label = _financial_label(item.financial_snapshot)
 
         rows.append(
             CompareRow(
@@ -491,6 +502,29 @@ def _build_compare_rows(recommendations: List[RecommendationCard], limit: int = 
             )
         )
     return rows
+
+
+def _financial_label(financial_snapshot: FinancialSnapshot) -> str:
+    if financial_snapshot.year and financial_snapshot.operating_income and financial_snapshot.operating_income > 0:
+        return "Profit data ready"
+    if financial_snapshot.year:
+        return "Statement saved"
+    return "No statement yet"
+
+
+def _compare_summary(rows: List[CompareDetailRow], missing_codes: List[str]) -> str:
+    if not rows:
+        return "None of the requested stocks had enough saved price history to compare yet."
+
+    top_pick = max(rows, key=lambda row: row.score)
+    calmest = min(rows, key=lambda row: row.volatility)
+    summary = (
+        f"{top_pick.ticker_name} currently leads on recommendation score, "
+        f"while {calmest.ticker_name} is the calmest option by recent volatility."
+    )
+    if missing_codes:
+        summary += f" Missing or unusable codes: {', '.join(missing_codes)}."
+    return summary
 
 
 def _build_sector_exposure(
@@ -818,6 +852,74 @@ def get_ranked_recommendations(
     return recommendations[:limit]
 
 
+def get_recommendations_by_codes(
+    db: Session,
+    ticker_codes: List[str],
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> CompareResponse:
+    normalized_codes: List[str] = []
+    for code in ticker_codes:
+        stripped = code.strip()
+        if stripped and stripped not in normalized_codes:
+            normalized_codes.append(stripped)
+
+    rows: List[CompareDetailRow] = []
+    missing_codes: List[str] = []
+
+    for ticker_code in normalized_codes:
+        ticker = db.query(models.Ticker).filter(models.Ticker.code == ticker_code).first()
+        if not ticker:
+            missing_codes.append(ticker_code)
+            continue
+
+        prices = (
+            db.query(models.DailyPrice)
+            .filter(models.DailyPrice.ticker_code == ticker.code)
+            .order_by(models.DailyPrice.date.desc())
+            .limit(20)
+            .all()
+        )
+        if not recommendation_engine.history_is_usable(prices):
+            missing_codes.append(ticker_code)
+            continue
+
+        financial_snapshot = _get_financial_snapshot(db, ticker.code)
+        recommendation = build_recommendation(
+            ticker=ticker,
+            prices=prices,
+            risk_profile=risk_profile,
+            learning_focus=learning_focus,
+            financial_snapshot=financial_snapshot,
+        )
+        rows.append(
+            CompareDetailRow(
+                ticker_code=recommendation.ticker_code,
+                ticker_name=recommendation.ticker_name,
+                sector=recommendation.sector,
+                score=recommendation.score,
+                risk_level=recommendation.risk_level,
+                price_change_20d=recommendation.price_change_20d,
+                volatility=recommendation.volatility,
+                financial_label=_financial_label(recommendation.financial_snapshot),
+                market=recommendation.market,
+                current_price=recommendation.current_price,
+                badge=recommendation.badge,
+                reasons=recommendation.reasons,
+                profile_match=recommendation.profile_match,
+            )
+        )
+
+    rows.sort(key=lambda row: row.score, reverse=True)
+    return CompareResponse(
+        requested_codes=normalized_codes,
+        matched_count=len(rows),
+        missing_codes=missing_codes,
+        summary=_compare_summary(rows, missing_codes),
+        rows=rows,
+    )
+
+
 @app.get("/")
 def read_root() -> dict:
     return {"message": "Stock Starter API"}
@@ -864,6 +966,26 @@ def read_recommendations(
         risk_profile=risk_profile,
         learning_focus=learning_focus,
     )
+
+
+@app.get("/compare", response_model=CompareResponse)
+def read_compare(
+    ticker_codes: List[str] = Query(..., min_length=1),
+    risk_profile: RiskProfile = Query(default="balanced"),
+    learning_focus: LearningFocus = Query(default="trend"),
+    db: Session = Depends(get_db),
+) -> CompareResponse:
+    comparison = get_recommendations_by_codes(
+        db=db,
+        ticker_codes=ticker_codes,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+    if not comparison.requested_codes:
+        raise HTTPException(status_code=422, detail="At least one ticker code is required")
+    if comparison.matched_count == 0:
+        raise HTTPException(status_code=404, detail=comparison.summary)
+    return comparison
 
 
 @app.get("/dashboard", response_model=DashboardResponse)
