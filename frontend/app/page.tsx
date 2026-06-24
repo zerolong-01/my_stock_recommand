@@ -141,6 +141,28 @@ interface AlternativeResponse {
     rows: AlternativeIdea[];
 }
 
+interface EntryPlanStep {
+    label: string;
+    target_amount: number;
+    estimated_shares: number;
+    note: string;
+}
+
+interface EntryPlanResponse {
+    ticker_code: string;
+    ticker_name: string;
+    current_price: number;
+    monthly_budget: number;
+    starter_budget: number;
+    cash_buffer: number;
+    suggested_entries: number;
+    max_single_order: number;
+    confidence_label: string;
+    summary: string;
+    steps: EntryPlanStep[];
+    guardrails: string[];
+}
+
 interface SectorExposureCard {
     sector: string;
     shortlist_count: number;
@@ -286,6 +308,8 @@ export default function Home() {
     const [compareLoading, setCompareLoading] = useState(false);
     const [alternativesData, setAlternativesData] = useState<AlternativeResponse | null>(null);
     const [alternativesLoading, setAlternativesLoading] = useState(false);
+    const [entryPlanData, setEntryPlanData] = useState<EntryPlanResponse | null>(null);
+    const [entryPlanLoading, setEntryPlanLoading] = useState(false);
     const [tickerSearch, setTickerSearch] = useState('');
     const [tickerSearchResults, setTickerSearchResults] = useState<TickerSearchResult[]>([]);
     const [tickerSearchLoading, setTickerSearchLoading] = useState(false);
@@ -387,6 +411,36 @@ export default function Home() {
                 setAlternativesLoading(false);
             });
     }, [selectedTicker, riskProfile, learningFocus]);
+
+    useEffect(() => {
+        if (!selectedTicker) {
+            setEntryPlanData(null);
+            return;
+        }
+
+        const params = new URLSearchParams();
+        params.set('risk_profile', riskProfile);
+        params.set('learning_focus', learningFocus);
+        params.set('monthly_budget', String(monthlyBudget));
+
+        setEntryPlanLoading(true);
+        fetch(`${API_BASE}/entry-plan/${selectedTicker}?${params.toString()}`)
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Entry plan request failed with status ${res.status}`);
+                }
+                return res.json();
+            })
+            .then((data: EntryPlanResponse) => {
+                setEntryPlanData(data);
+                setEntryPlanLoading(false);
+            })
+            .catch((error) => {
+                console.error('Failed to fetch entry plan:', error);
+                setEntryPlanData(null);
+                setEntryPlanLoading(false);
+            });
+    }, [selectedTicker, riskProfile, learningFocus, monthlyBudget]);
 
     useEffect(() => {
         if (!dashboard) {
@@ -1872,6 +1926,82 @@ export default function Home() {
                                 ) : (
                                     <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
                                         No alternatives are ready yet for this stock. Try another saved pick or refresh after more market history is collected.
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-6 rounded-[28px] bg-[#173f35] p-5 text-white shadow-[0_18px_50px_rgba(23,63,53,0.14)]">
+                                <div className="flex flex-wrap items-end justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm uppercase tracking-[0.18em] text-white/55">Entry plan</p>
+                                        <h3 className="mt-2 text-2xl font-semibold">
+                                            {selectedRecommendation
+                                                ? `How to approach ${selectedRecommendation.ticker_name} without rushing`
+                                                : 'Select a stock to build an entry plan'}
+                                        </h3>
+                                    </div>
+                                    {entryPlanData && (
+                                        <div className="rounded-2xl bg-white/10 px-4 py-3 text-right">
+                                            <p className="text-xs text-white/55">Starter size</p>
+                                            <p className="mt-1 text-xl font-semibold">{formatBudgetLabel(entryPlanData.starter_budget)}</p>
+                                            <p className="mt-1 text-sm text-white/70">{entryPlanData.confidence_label}</p>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-white/80">
+                                    {entryPlanData?.summary ??
+                                        'Once you choose a stock, the app can suggest a slower first-entry plan based on your monthly budget and the stock’s recent behavior.'}
+                                </p>
+                                {entryPlanLoading || detailLoading ? (
+                                    <div className="mt-4 rounded-3xl bg-white/8 px-5 py-4 text-sm text-white/72">
+                                        Building a paced entry plan for this stock.
+                                    </div>
+                                ) : entryPlanData ? (
+                                    <>
+                                        <div className="mt-5 grid gap-4 md:grid-cols-4">
+                                            <div className="rounded-3xl bg-white/8 p-4">
+                                                <p className="text-xs text-white/55">Suggested entries</p>
+                                                <p className="mt-2 text-2xl font-semibold">{entryPlanData.suggested_entries}</p>
+                                            </div>
+                                            <div className="rounded-3xl bg-white/8 p-4">
+                                                <p className="text-xs text-white/55">Max single order</p>
+                                                <p className="mt-2 text-2xl font-semibold">{formatBudgetLabel(entryPlanData.max_single_order)}</p>
+                                            </div>
+                                            <div className="rounded-3xl bg-white/8 p-4">
+                                                <p className="text-xs text-white/55">Cash buffer</p>
+                                                <p className="mt-2 text-2xl font-semibold">{formatBudgetLabel(entryPlanData.cash_buffer)}</p>
+                                            </div>
+                                            <div className="rounded-3xl bg-white/8 p-4">
+                                                <p className="text-xs text-white/55">Current price</p>
+                                                <p className="mt-2 text-2xl font-semibold">{formatPrice(entryPlanData.current_price)} KRW</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-5 grid gap-4 md:grid-cols-3">
+                                            {entryPlanData.steps.map((step) => (
+                                                <article key={step.label} className="rounded-[24px] bg-white/8 p-5">
+                                                    <p className="text-xs uppercase tracking-[0.16em] text-[#f4b942]">{step.label}</p>
+                                                    <p className="mt-3 text-2xl font-semibold">{formatBudgetLabel(step.target_amount)}</p>
+                                                    <p className="mt-2 text-sm text-white/72">
+                                                        Estimated shares {step.estimated_shares}
+                                                    </p>
+                                                    <p className="mt-4 text-sm leading-6 text-white/82">{step.note}</p>
+                                                </article>
+                                            ))}
+                                        </div>
+                                        <div className="mt-5 rounded-[24px] bg-white/8 p-5">
+                                            <p className="text-sm text-white/60">Guardrails</p>
+                                            <div className="mt-4 space-y-3">
+                                                {entryPlanData.guardrails.map((guardrail) => (
+                                                    <div key={guardrail} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/84">
+                                                        {guardrail}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="mt-4 rounded-3xl border border-dashed border-white/15 bg-white/6 px-5 py-4 text-sm text-white/70">
+                                        No entry plan is ready yet for this stock. Try opening another candidate after more history is saved.
                                     </div>
                                 )}
                             </div>

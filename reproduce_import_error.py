@@ -32,6 +32,11 @@ def main() -> None:
             200,
         ),
         (
+            "/entry-plan/005930",
+            {"risk_profile": "balanced", "learning_focus": "trend", "monthly_budget": 300000},
+            200,
+        ),
+        (
             "/dashboard",
             {"risk_profile": "balanced", "learning_focus": "trend", "monthly_budget": 300000},
             200,

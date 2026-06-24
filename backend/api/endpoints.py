@@ -92,3 +92,20 @@ def read_alternatives(
         learning_focus=learning_focus,
         db=db,
     )
+
+
+@router.get("/entry-plan/{ticker_code}", response_model=main.EntryPlanResponse)
+def read_entry_plan(
+    ticker_code: str,
+    monthly_budget: int = Query(default=300000, ge=100000, le=5000000),
+    risk_profile: main.RiskProfile = Query(default="balanced"),
+    learning_focus: main.LearningFocus = Query(default="trend"),
+    db: Session = Depends(database.get_db),
+) -> main.EntryPlanResponse:
+    return main.read_entry_plan(
+        ticker_code=ticker_code,
+        monthly_budget=monthly_budget,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+        db=db,
+    )

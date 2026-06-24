@@ -239,6 +239,28 @@ class AlternativeResponse(BaseModel):
     rows: List[AlternativeIdea]
 
 
+class EntryPlanStep(BaseModel):
+    label: str
+    target_amount: int
+    estimated_shares: int
+    note: str
+
+
+class EntryPlanResponse(BaseModel):
+    ticker_code: str
+    ticker_name: str
+    current_price: float
+    monthly_budget: int
+    starter_budget: int
+    cash_buffer: int
+    suggested_entries: int
+    max_single_order: int
+    confidence_label: str
+    summary: str
+    steps: List[EntryPlanStep]
+    guardrails: List[str]
+
+
 def get_db() -> Generator[Session, None, None]:
     db = database.SessionLocal()
     try:
@@ -1035,6 +1057,104 @@ def _alternative_summary(base: RecommendationCard, rows: List[AlternativeIdea]) 
     )
 
 
+def _entry_confidence_label(recommendation: RecommendationCard) -> str:
+    if recommendation.score >= 85 and recommendation.risk_level == "Low":
+        return "Higher conviction starter"
+    if recommendation.score >= 75:
+        return "Measured starter"
+    return "Observation-first starter"
+
+
+def _entry_count(recommendation: RecommendationCard, risk_profile: RiskProfile) -> int:
+    if recommendation.volatility >= 6 or recommendation.risk_level == "High":
+        return 3
+    if risk_profile == "steady":
+        return 3
+    if risk_profile == "ambitious" and recommendation.score >= 80 and recommendation.volatility < 4:
+        return 2
+    return 2
+
+
+def _entry_buffer_ratio(recommendation: RecommendationCard, risk_profile: RiskProfile) -> float:
+    if recommendation.risk_level == "High":
+        return 0.45
+    if risk_profile == "steady":
+        return 0.4
+    if recommendation.score >= 85 and recommendation.volatility < 3.5:
+        return 0.25
+    return 0.32
+
+
+def build_entry_plan(
+    recommendation: RecommendationCard,
+    monthly_budget: int,
+    risk_profile: RiskProfile,
+) -> EntryPlanResponse:
+    buffer_ratio = _entry_buffer_ratio(recommendation, risk_profile)
+    cash_buffer = int(monthly_budget * buffer_ratio)
+    starter_budget = max(monthly_budget - cash_buffer, 0)
+    suggested_entries = _entry_count(recommendation, risk_profile)
+    max_single_order = int(starter_budget / suggested_entries) if suggested_entries else starter_budget
+
+    if suggested_entries <= 1:
+        step_weights = [1.0]
+    elif suggested_entries == 2:
+        step_weights = [0.55, 0.45]
+    else:
+        step_weights = [0.4, 0.35, 0.25]
+
+    step_labels = ["First entry", "Second entry", "Final entry"]
+    step_notes = [
+        "Start small enough that a red day does not force an emotional exit.",
+        "Only add if the original reason still makes sense after a few sessions.",
+        "Use the last slice only if volatility still feels manageable for your comfort level.",
+    ]
+
+    steps: List[EntryPlanStep] = []
+    remaining_budget = starter_budget
+    for index, weight in enumerate(step_weights):
+        target_amount = remaining_budget if index == len(step_weights) - 1 else int(starter_budget * weight)
+        remaining_budget = max(remaining_budget - target_amount, 0)
+        estimated_shares = int(target_amount // recommendation.current_price) if recommendation.current_price else 0
+        steps.append(
+            EntryPlanStep(
+                label=step_labels[index],
+                target_amount=target_amount,
+                estimated_shares=estimated_shares,
+                note=step_notes[index],
+            )
+        )
+
+    guardrails = [
+        "Do not use the reserved cash buffer just because the price dipped for one day.",
+        "Re-check earnings dates and major news before each added entry.",
+        "If the chart starts feeling stressful, stop after the first entry and keep the rest in cash.",
+    ]
+    if recommendation.risk_level == "High":
+        guardrails.insert(0, "This stock is already tagged higher-risk, so treat the first entry as a learning position.")
+
+    summary = (
+        f"A beginner-friendly plan for {recommendation.ticker_name} is to commit "
+        f"{starter_budget:,} KRW now, split across {suggested_entries} entries, and keep "
+        f"{cash_buffer:,} KRW in reserve."
+    )
+
+    return EntryPlanResponse(
+        ticker_code=recommendation.ticker_code,
+        ticker_name=recommendation.ticker_name,
+        current_price=recommendation.current_price,
+        monthly_budget=monthly_budget,
+        starter_budget=starter_budget,
+        cash_buffer=cash_buffer,
+        suggested_entries=suggested_entries,
+        max_single_order=max_single_order,
+        confidence_label=_entry_confidence_label(recommendation),
+        summary=summary,
+        steps=steps,
+        guardrails=guardrails,
+    )
+
+
 def get_alternative_recommendations(
     db: Session,
     ticker_code: str,
@@ -1080,6 +1200,26 @@ def get_alternative_recommendations(
         base_ticker_name=base.ticker_name,
         summary=_alternative_summary(base, rows),
         rows=rows,
+    )
+
+
+def get_entry_plan(
+    db: Session,
+    ticker_code: str,
+    monthly_budget: int = 300000,
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> EntryPlanResponse:
+    recommendation = get_recommendation_by_code(
+        db=db,
+        ticker_code=ticker_code,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+    return build_entry_plan(
+        recommendation=recommendation,
+        monthly_budget=monthly_budget,
+        risk_profile=risk_profile,
     )
 
 
@@ -1190,6 +1330,23 @@ def read_alternatives(
         db=db,
         ticker_code=ticker_code,
         limit=limit,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+
+
+@app.get("/entry-plan/{ticker_code}", response_model=EntryPlanResponse)
+def read_entry_plan(
+    ticker_code: str,
+    monthly_budget: int = Query(default=300000, ge=100000, le=5000000),
+    risk_profile: RiskProfile = Query(default="balanced"),
+    learning_focus: LearningFocus = Query(default="trend"),
+    db: Session = Depends(get_db),
+) -> EntryPlanResponse:
+    return get_entry_plan(
+        db=db,
+        ticker_code=ticker_code,
+        monthly_budget=monthly_budget,
         risk_profile=risk_profile,
         learning_focus=learning_focus,
     )
