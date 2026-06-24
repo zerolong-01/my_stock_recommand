@@ -47,6 +47,21 @@ def read_recommendations(
     )
 
 
+@router.get("/recommendations/{ticker_code}", response_model=main.RecommendationCard)
+def read_recommendation(
+    ticker_code: str,
+    risk_profile: main.RiskProfile = Query(default="balanced"),
+    learning_focus: main.LearningFocus = Query(default="trend"),
+    db: Session = Depends(database.get_db),
+) -> main.RecommendationCard:
+    return main.read_recommendation(
+        ticker_code=ticker_code,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+        db=db,
+    )
+
+
 @router.get("/compare", response_model=main.CompareResponse)
 def read_compare(
     ticker_codes: list[str] = Query(...),
@@ -56,6 +71,23 @@ def read_compare(
 ) -> main.CompareResponse:
     return main.read_compare(
         ticker_codes=ticker_codes,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+        db=db,
+    )
+
+
+@router.get("/alternatives/{ticker_code}", response_model=main.AlternativeResponse)
+def read_alternatives(
+    ticker_code: str,
+    limit: int = Query(default=3, ge=1, le=6),
+    risk_profile: main.RiskProfile = Query(default="balanced"),
+    learning_focus: main.LearningFocus = Query(default="trend"),
+    db: Session = Depends(database.get_db),
+) -> main.AlternativeResponse:
+    return main.read_alternatives(
+        ticker_code=ticker_code,
+        limit=limit,
         risk_profile=risk_profile,
         learning_focus=learning_focus,
         db=db,

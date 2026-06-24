@@ -216,6 +216,29 @@ class CompareResponse(BaseModel):
     rows: List[CompareDetailRow]
 
 
+class AlternativeIdea(BaseModel):
+    ticker_code: str
+    ticker_name: str
+    market: str
+    sector: Optional[str] = None
+    score: float
+    risk_level: str
+    current_price: float
+    price_change_20d: float
+    volatility: float
+    badge: str
+    why_consider: str
+    tradeoff: str
+    comparison_label: str
+
+
+class AlternativeResponse(BaseModel):
+    base_ticker_code: str
+    base_ticker_name: str
+    summary: str
+    rows: List[AlternativeIdea]
+
+
 def get_db() -> Generator[Session, None, None]:
     db = database.SessionLocal()
     try:
@@ -818,9 +841,54 @@ def build_recommendation(
     )
 
 
-def get_ranked_recommendations(
+def _build_recommendation_for_ticker(
     db: Session,
-    limit: int = 10,
+    ticker: models.Ticker,
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> Optional[RecommendationCard]:
+    prices = (
+        db.query(models.DailyPrice)
+        .filter(models.DailyPrice.ticker_code == ticker.code)
+        .order_by(models.DailyPrice.date.desc())
+        .limit(20)
+        .all()
+    )
+    if not recommendation_engine.history_is_usable(prices):
+        return None
+    financial_snapshot = _get_financial_snapshot(db, ticker.code)
+    return build_recommendation(
+        ticker=ticker,
+        prices=prices,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+        financial_snapshot=financial_snapshot,
+    )
+
+
+def get_recommendation_by_code(
+    db: Session,
+    ticker_code: str,
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> RecommendationCard:
+    ticker = db.query(models.Ticker).filter(models.Ticker.code == ticker_code).first()
+    if not ticker:
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker_code} was not found")
+
+    recommendation = _build_recommendation_for_ticker(
+        db=db,
+        ticker=ticker,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+    if not recommendation:
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker_code} does not have enough saved price history yet")
+    return recommendation
+
+
+def _get_all_recommendations(
+    db: Session,
     risk_profile: RiskProfile = "balanced",
     learning_focus: LearningFocus = "trend",
 ) -> List[RecommendationCard]:
@@ -828,27 +896,30 @@ def get_ranked_recommendations(
     recommendations: List[RecommendationCard] = []
 
     for ticker in tickers:
-        prices = (
-            db.query(models.DailyPrice)
-            .filter(models.DailyPrice.ticker_code == ticker.code)
-            .order_by(models.DailyPrice.date.desc())
-            .limit(20)
-            .all()
+        recommendation = _build_recommendation_for_ticker(
+            db=db,
+            ticker=ticker,
+            risk_profile=risk_profile,
+            learning_focus=learning_focus,
         )
-        if not recommendation_engine.history_is_usable(prices):
-            continue
-        financial_snapshot = _get_financial_snapshot(db, ticker.code)
-        recommendations.append(
-            build_recommendation(
-                ticker=ticker,
-                prices=prices,
-                risk_profile=risk_profile,
-                learning_focus=learning_focus,
-                financial_snapshot=financial_snapshot,
-            )
-        )
+        if recommendation:
+            recommendations.append(recommendation)
 
     recommendations.sort(key=lambda item: item.score, reverse=True)
+    return recommendations
+
+
+def get_ranked_recommendations(
+    db: Session,
+    limit: int = 10,
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> List[RecommendationCard]:
+    recommendations = _get_all_recommendations(
+        db=db,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
     return recommendations[:limit]
 
 
@@ -868,30 +939,17 @@ def get_recommendations_by_codes(
     missing_codes: List[str] = []
 
     for ticker_code in normalized_codes:
-        ticker = db.query(models.Ticker).filter(models.Ticker.code == ticker_code).first()
-        if not ticker:
+        try:
+            recommendation = get_recommendation_by_code(
+                db=db,
+                ticker_code=ticker_code,
+                risk_profile=risk_profile,
+                learning_focus=learning_focus,
+            )
+        except HTTPException:
             missing_codes.append(ticker_code)
             continue
 
-        prices = (
-            db.query(models.DailyPrice)
-            .filter(models.DailyPrice.ticker_code == ticker.code)
-            .order_by(models.DailyPrice.date.desc())
-            .limit(20)
-            .all()
-        )
-        if not recommendation_engine.history_is_usable(prices):
-            missing_codes.append(ticker_code)
-            continue
-
-        financial_snapshot = _get_financial_snapshot(db, ticker.code)
-        recommendation = build_recommendation(
-            ticker=ticker,
-            prices=prices,
-            risk_profile=risk_profile,
-            learning_focus=learning_focus,
-            financial_snapshot=financial_snapshot,
-        )
         rows.append(
             CompareDetailRow(
                 ticker_code=recommendation.ticker_code,
@@ -916,6 +974,111 @@ def get_recommendations_by_codes(
         matched_count=len(rows),
         missing_codes=missing_codes,
         summary=_compare_summary(rows, missing_codes),
+        rows=rows,
+    )
+
+
+def _alternative_priority(base: RecommendationCard, candidate: RecommendationCard) -> tuple[float, float, float]:
+    same_sector = 3.0 if base.sector and candidate.sector == base.sector else 0.0
+    calmer = 2.0 if candidate.volatility < base.volatility else 0.0
+    same_market = 1.0 if candidate.market == base.market else 0.0
+    score_closeness = max(0.0, 20.0 - abs(candidate.score - base.score))
+    return (
+        same_sector + calmer + same_market + score_closeness,
+        candidate.score,
+        -candidate.volatility,
+    )
+
+
+def _alternative_why(base: RecommendationCard, candidate: RecommendationCard) -> str:
+    if base.sector and candidate.sector == base.sector and candidate.volatility < base.volatility:
+        return "It keeps you in the same sector idea, but with calmer recent movement."
+    if candidate.risk_level == "Low" and base.risk_level != "Low":
+        return "It offers a calmer beginner profile if the current pick feels too fast."
+    if candidate.price_change_20d > base.price_change_20d:
+        return "It has the clearer recent trend if you want a stronger momentum read."
+    if base.sector and candidate.sector == base.sector:
+        return "It gives you a second opinion inside the same sector story before you commit."
+    return "It is a useful contrast pick so you can compare a different setup before buying."
+
+
+def _alternative_tradeoff(base: RecommendationCard, candidate: RecommendationCard) -> str:
+    if candidate.volatility < base.volatility and candidate.price_change_20d < base.price_change_20d:
+        return "The calmer ride may come with a softer recent trend."
+    if candidate.score < base.score:
+        return "Its overall recommendation score is a bit lower than your current lead pick."
+    if base.sector != candidate.sector:
+        return "Because it changes sectors, the business story may be less directly comparable."
+    return "It is worth comparing, but it does not replace the need to check earnings dates and news."
+
+
+def _alternative_label(base: RecommendationCard, candidate: RecommendationCard) -> str:
+    if base.sector and candidate.sector == base.sector and candidate.volatility < base.volatility:
+        return "Calmer same-sector backup"
+    if candidate.risk_level == "Low" and base.risk_level != "Low":
+        return "Lower-stress alternative"
+    if candidate.price_change_20d > base.price_change_20d:
+        return "Stronger trend alternative"
+    if base.sector and candidate.sector == base.sector:
+        return "Same-sector compare pick"
+    return "Broader comparison pick"
+
+
+def _alternative_summary(base: RecommendationCard, rows: List[AlternativeIdea]) -> str:
+    if not rows:
+        return f"{base.ticker_name} already stands fairly alone in the current saved universe."
+
+    lead = rows[0]
+    return (
+        f"If {base.ticker_name} feels too committed right now, start by comparing it with "
+        f"{lead.ticker_name}, which is tagged as a {lead.comparison_label.lower()}."
+    )
+
+
+def get_alternative_recommendations(
+    db: Session,
+    ticker_code: str,
+    limit: int = 3,
+    risk_profile: RiskProfile = "balanced",
+    learning_focus: LearningFocus = "trend",
+) -> AlternativeResponse:
+    base = get_recommendation_by_code(
+        db=db,
+        ticker_code=ticker_code,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+    recommendations = _get_all_recommendations(
+        db=db,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+    candidates = [item for item in recommendations if item.ticker_code != base.ticker_code]
+    candidates.sort(key=lambda item: _alternative_priority(base, item), reverse=True)
+
+    rows = [
+        AlternativeIdea(
+            ticker_code=item.ticker_code,
+            ticker_name=item.ticker_name,
+            market=item.market,
+            sector=item.sector,
+            score=item.score,
+            risk_level=item.risk_level,
+            current_price=item.current_price,
+            price_change_20d=item.price_change_20d,
+            volatility=item.volatility,
+            badge=item.badge,
+            why_consider=_alternative_why(base, item),
+            tradeoff=_alternative_tradeoff(base, item),
+            comparison_label=_alternative_label(base, item),
+        )
+        for item in candidates[:limit]
+    ]
+
+    return AlternativeResponse(
+        base_ticker_code=base.ticker_code,
+        base_ticker_name=base.ticker_name,
+        summary=_alternative_summary(base, rows),
         rows=rows,
     )
 
@@ -980,6 +1143,21 @@ def read_recommendations(
     )
 
 
+@app.get("/recommendations/{ticker_code}", response_model=RecommendationCard)
+def read_recommendation(
+    ticker_code: str,
+    risk_profile: RiskProfile = Query(default="balanced"),
+    learning_focus: LearningFocus = Query(default="trend"),
+    db: Session = Depends(get_db),
+) -> RecommendationCard:
+    return get_recommendation_by_code(
+        db=db,
+        ticker_code=ticker_code,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
+
+
 @app.get("/compare", response_model=CompareResponse)
 def read_compare(
     ticker_codes: List[str] = Query(..., min_length=1),
@@ -998,6 +1176,23 @@ def read_compare(
     if comparison.matched_count == 0:
         raise HTTPException(status_code=404, detail=comparison.summary)
     return comparison
+
+
+@app.get("/alternatives/{ticker_code}", response_model=AlternativeResponse)
+def read_alternatives(
+    ticker_code: str,
+    limit: int = Query(default=3, ge=1, le=6),
+    risk_profile: RiskProfile = Query(default="balanced"),
+    learning_focus: LearningFocus = Query(default="trend"),
+    db: Session = Depends(get_db),
+) -> AlternativeResponse:
+    return get_alternative_recommendations(
+        db=db,
+        ticker_code=ticker_code,
+        limit=limit,
+        risk_profile=risk_profile,
+        learning_focus=learning_focus,
+    )
 
 
 @app.get("/dashboard", response_model=DashboardResponse)

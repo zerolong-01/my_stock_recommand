@@ -118,6 +118,29 @@ interface CompareResponse {
     rows: CompareDetailRow[];
 }
 
+interface AlternativeIdea {
+    ticker_code: string;
+    ticker_name: string;
+    market: string;
+    sector: string | null;
+    score: number;
+    risk_level: string;
+    current_price: number;
+    price_change_20d: number;
+    volatility: number;
+    badge: string;
+    why_consider: string;
+    tradeoff: string;
+    comparison_label: string;
+}
+
+interface AlternativeResponse {
+    base_ticker_code: string;
+    base_ticker_name: string;
+    summary: string;
+    rows: AlternativeIdea[];
+}
+
 interface SectorExposureCard {
     sector: string;
     shortlist_count: number;
@@ -248,8 +271,10 @@ export default function Home() {
     const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
     const [chartData, setChartData] = useState<ChartData[]>([]);
     const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+    const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null);
     const [loading, setLoading] = useState(true);
     const [chartLoading, setChartLoading] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
     const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced');
     const [learningFocus, setLearningFocus] = useState<LearningFocus>('trend');
     const [monthlyBudget, setMonthlyBudget] = useState(300000);
@@ -259,6 +284,8 @@ export default function Home() {
     const [copiedReport, setCopiedReport] = useState(false);
     const [compareData, setCompareData] = useState<CompareResponse | null>(null);
     const [compareLoading, setCompareLoading] = useState(false);
+    const [alternativesData, setAlternativesData] = useState<AlternativeResponse | null>(null);
+    const [alternativesLoading, setAlternativesLoading] = useState(false);
     const [tickerSearch, setTickerSearch] = useState('');
     const [tickerSearchResults, setTickerSearchResults] = useState<TickerSearchResult[]>([]);
     const [tickerSearchLoading, setTickerSearchLoading] = useState(false);
@@ -330,6 +357,36 @@ export default function Home() {
                 setCompareLoading(false);
             });
     }, [dashboard, watchlist, selectedTicker, riskProfile, learningFocus]);
+
+    useEffect(() => {
+        if (!selectedTicker) {
+            setAlternativesData(null);
+            return;
+        }
+
+        const params = new URLSearchParams();
+        params.set('risk_profile', riskProfile);
+        params.set('learning_focus', learningFocus);
+        params.set('limit', '3');
+
+        setAlternativesLoading(true);
+        fetch(`${API_BASE}/alternatives/${selectedTicker}?${params.toString()}`)
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Alternatives request failed with status ${res.status}`);
+                }
+                return res.json();
+            })
+            .then((data: AlternativeResponse) => {
+                setAlternativesData(data);
+                setAlternativesLoading(false);
+            })
+            .catch((error) => {
+                console.error('Failed to fetch alternatives:', error);
+                setAlternativesData(null);
+                setAlternativesLoading(false);
+            });
+    }, [selectedTicker, riskProfile, learningFocus]);
 
     useEffect(() => {
         if (!dashboard) {
@@ -431,6 +488,7 @@ export default function Home() {
 
     const fetchDashboard = (risk: RiskProfile, focus: LearningFocus, budget: number) => {
         setLoading(true);
+        setSelectedRecommendation(null);
 
         fetch(`${API_BASE}/dashboard?risk_profile=${risk}&learning_focus=${focus}&monthly_budget=${budget}`)
             .then((res) => res.json())
@@ -459,6 +517,7 @@ export default function Home() {
     const handleTickerClick = (tickerCode: string) => {
         setSelectedTicker(tickerCode);
         setChartLoading(true);
+        setDetailLoading(true);
 
         fetch(`${API_BASE}/prices/${tickerCode}`)
             .then((res) => res.json())
@@ -483,10 +542,28 @@ export default function Home() {
                 setChartData([]);
                 setChartLoading(false);
             });
-    };
 
-    const selectedRecommendation =
-        dashboard?.recommendations.find((item) => item.ticker_code === selectedTicker) ?? null;
+        const params = new URLSearchParams();
+        params.set('risk_profile', riskProfile);
+        params.set('learning_focus', learningFocus);
+
+        fetch(`${API_BASE}/recommendations/${tickerCode}?${params.toString()}`)
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Recommendation request failed with status ${res.status}`);
+                }
+                return res.json();
+            })
+            .then((data: Recommendation) => {
+                setSelectedRecommendation(data);
+                setDetailLoading(false);
+            })
+            .catch((error) => {
+                console.error(`Failed to fetch recommendation detail for ${tickerCode}:`, error);
+                setSelectedRecommendation(null);
+                setDetailLoading(false);
+            });
+    };
     const usesDemoFinancials =
         dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
     const watchlistItems =
@@ -1698,6 +1775,103 @@ export default function Home() {
                                 ) : (
                                     <div className="flex h-[420px] items-center justify-center text-slate-500">
                                         No chart data available for this stock.
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-6 rounded-[28px] bg-[#f7f9f5] p-5">
+                                <div className="flex flex-wrap items-end justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm uppercase tracking-[0.18em] text-slate-400">Alternative paths</p>
+                                        <h3 className="mt-2 text-2xl font-semibold text-slate-900">
+                                            {selectedRecommendation
+                                                ? `If ${selectedRecommendation.ticker_name} feels tricky, compare these next`
+                                                : 'Select a stock to unlock alternatives'}
+                                        </h3>
+                                    </div>
+                                    {selectedRecommendation && (
+                                        <span className="rounded-full bg-white px-4 py-2 text-sm text-slate-600 shadow-[0_8px_20px_rgba(39,61,51,0.06)]">
+                                            Compare before committing
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-slate-600">
+                                    {alternativesData?.summary ??
+                                        'The app will suggest calmer backups or stronger comparison ideas once you open a stock in the detail board.'}
+                                </p>
+                                {alternativesLoading || detailLoading ? (
+                                    <div className="mt-4 rounded-3xl bg-white px-5 py-4 text-sm text-slate-500">
+                                        Looking for nearby alternatives with a similar learning fit.
+                                    </div>
+                                ) : alternativesData?.rows.length ? (
+                                    <div className="mt-5 grid gap-4 md:grid-cols-3">
+                                        {alternativesData.rows.map((item) => (
+                                            <article key={item.ticker_code} className="rounded-[24px] bg-white p-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">{item.comparison_label}</p>
+                                                        <h4 className="mt-2 text-xl font-semibold text-slate-900">{item.ticker_name}</h4>
+                                                        <p className="mt-1 text-sm text-slate-500">
+                                                            {item.ticker_code} | {item.market}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-2xl bg-[#f5f0e4] px-3 py-2 text-right">
+                                                        <p className="text-xs text-slate-500">Score</p>
+                                                        <p className="font-display text-2xl text-slate-900">{item.score}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                                                    <span className="rounded-full bg-[#173f35]/10 px-3 py-1 text-[#173f35]">{item.badge}</span>
+                                                    <span className="rounded-full bg-[#f4b942]/20 px-3 py-1 text-[#7b5410]">Risk {item.risk_level}</span>
+                                                </div>
+                                                <p className="mt-4 text-sm leading-6 text-slate-600">{item.why_consider}</p>
+                                                <div className="mt-4 rounded-2xl bg-[#f8f6ef] px-4 py-3 text-sm leading-6 text-slate-600">
+                                                    Trade-off: {item.tradeoff}
+                                                </div>
+                                                <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-600">
+                                                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                                        <p className="text-xs text-slate-400">20-day move</p>
+                                                        <p className={`mt-1 font-semibold ${item.price_change_20d >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                            {formatPercent(item.price_change_20d)}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                                        <p className="text-xs text-slate-400">Volatility</p>
+                                                        <p className="mt-1 font-semibold text-slate-900">{item.volatility.toFixed(1)}%</p>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-5 flex flex-wrap gap-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleTickerClick(item.ticker_code)}
+                                                        className="rounded-full bg-[#173f35] px-4 py-2 text-sm font-medium text-white"
+                                                    >
+                                                        Open this instead
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            toggleWatchlist(item.ticker_code, {
+                                                                ticker_code: item.ticker_code,
+                                                                ticker_name: item.ticker_name,
+                                                                market: item.market,
+                                                                sector: item.sector,
+                                                                score: item.score,
+                                                                risk_level: item.risk_level,
+                                                                price_change_20d: item.price_change_20d,
+                                                            })
+                                                        }
+                                                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700"
+                                                    >
+                                                        {watchlist.includes(item.ticker_code) ? 'Remove saved' : 'Save alternative'}
+                                                    </button>
+                                                </div>
+                                            </article>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
+                                        No alternatives are ready yet for this stock. Try another saved pick or refresh after more market history is collected.
                                     </div>
                                 )}
                             </div>

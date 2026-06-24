@@ -20,9 +20,15 @@ def main() -> None:
         ("/health", {}, 200),
         ("/tickers", {"limit": 3}, 200),
         ("/recommendations", {"limit": 3}, 200),
+        ("/recommendations/005930", {"risk_profile": "balanced", "learning_focus": "trend"}, 200),
         (
             "/compare",
             [("ticker_codes", "005930"), ("ticker_codes", "000660")],
+            200,
+        ),
+        (
+            "/alternatives/005930",
+            {"risk_profile": "balanced", "learning_focus": "trend", "limit": 3},
             200,
         ),
         (
