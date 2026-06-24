@@ -102,6 +102,22 @@ interface CompareRow {
     financial_label: string;
 }
 
+interface CompareDetailRow extends CompareRow {
+    market: string;
+    current_price: number;
+    badge: string;
+    reasons: string[];
+    profile_match: string;
+}
+
+interface CompareResponse {
+    requested_codes: string[];
+    matched_count: number;
+    missing_codes: string[];
+    summary: string;
+    rows: CompareDetailRow[];
+}
+
 interface SectorExposureCard {
     sector: string;
     shortlist_count: number;
@@ -206,6 +222,10 @@ function formatPercent(value: number) {
     return `${sign}${value.toFixed(1)}%`;
 }
 
+function hasCurrentPrice(row: CompareRow | CompareDetailRow): row is CompareDetailRow {
+    return typeof (row as CompareDetailRow).current_price === 'number';
+}
+
 export default function Home() {
     const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
     const [chartData, setChartData] = useState<ChartData[]>([]);
@@ -219,6 +239,8 @@ export default function Home() {
     const [shortlistFilter, setShortlistFilter] = useState<ShortlistFilter>('all');
     const [shortlistSort, setShortlistSort] = useState<ShortlistSort>('recommended');
     const [copiedReport, setCopiedReport] = useState(false);
+    const [compareData, setCompareData] = useState<CompareResponse | null>(null);
+    const [compareLoading, setCompareLoading] = useState(false);
 
     useEffect(() => {
         const saved = window.localStorage.getItem('stock-starter-watchlist');
@@ -243,6 +265,49 @@ export default function Home() {
     useEffect(() => {
         fetchDashboard(riskProfile, learningFocus, monthlyBudget);
     }, [riskProfile, learningFocus, monthlyBudget]);
+
+    useEffect(() => {
+        if (!dashboard) {
+            setCompareData(null);
+            return;
+        }
+
+        const compareCodes = Array.from(
+            new Set(
+                [selectedTicker, ...watchlist]
+                    .filter((code): code is string => Boolean(code))
+                    .slice(0, 4)
+            )
+        );
+
+        if (compareCodes.length < 2) {
+            setCompareData(null);
+            return;
+        }
+
+        const params = new URLSearchParams();
+        params.set('risk_profile', riskProfile);
+        params.set('learning_focus', learningFocus);
+        compareCodes.forEach((code) => params.append('ticker_codes', code));
+
+        setCompareLoading(true);
+        fetch(`${API_BASE}/compare?${params.toString()}`)
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Compare request failed with status ${res.status}`);
+                }
+                return res.json();
+            })
+            .then((data: CompareResponse) => {
+                setCompareData(data);
+                setCompareLoading(false);
+            })
+            .catch((error) => {
+                console.error('Failed to fetch compare data:', error);
+                setCompareData(null);
+                setCompareLoading(false);
+            });
+    }, [dashboard, watchlist, selectedTicker, riskProfile, learningFocus]);
 
     const fetchDashboard = (risk: RiskProfile, focus: LearningFocus, budget: number) => {
         setLoading(true);
@@ -306,6 +371,7 @@ export default function Home() {
         dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
     const watchlistItems =
         dashboard?.recommendations.filter((item) => watchlist.includes(item.ticker_code)) ?? [];
+    const compareRows: Array<CompareRow | CompareDetailRow> = compareData?.rows ?? dashboard?.compare_rows ?? [];
     const selectedRiskOption = riskOptions.find((option) => option.value === riskProfile) ?? riskOptions[1];
     const selectedFocusOption = focusOptions.find((option) => option.value === learningFocus) ?? focusOptions[1];
     const planProgress = [
@@ -420,6 +486,38 @@ export default function Home() {
         nextActions[2],
     ];
     const starterBrief = starterBriefLines.join('\n');
+    const confidenceLevel = selectedRecommendation
+        ? selectedRecommendation.score >= 85
+            ? 'High'
+            : selectedRecommendation.score >= 75
+              ? 'Medium'
+              : 'Building'
+        : 'Waiting';
+    const confidencePercent = selectedRecommendation
+        ? Math.max(24, Math.min(96, Math.round(selectedRecommendation.score)))
+        : 0;
+    const whyNowPoints = selectedRecommendation
+        ? [
+              selectedRecommendation.profile_match,
+              selectedRecommendation.action_guide,
+              selectedRecommendation.price_change_20d >= 0
+                  ? `Recent momentum is supportive with a ${formatPercent(selectedRecommendation.price_change_20d)} move over 20 days.`
+                  : `The stock pulled back ${formatPercent(selectedRecommendation.price_change_20d)} over 20 days, which may still offer a learning setup if the thesis remains intact.`,
+          ]
+        : [];
+    const whyNotNowPoints = selectedRecommendation
+        ? [
+              selectedRecommendation.beginner_note,
+              selectedRecommendation.volatility >= 35
+                  ? `Volatility is elevated at ${selectedRecommendation.volatility.toFixed(1)}%, so price swings may feel stressful for a first position.`
+                  : `Volatility is ${selectedRecommendation.volatility.toFixed(1)}%, which is manageable but still worth respecting with a small starter size.`,
+              selectedRecommendation.financial_snapshot.is_demo
+                  ? 'Financial coverage is currently supported by labeled demo seed data, so treat the business snapshot as provisional.'
+                  : selectedRecommendation.financial_snapshot.source
+                    ? `Financial context is available from ${selectedRecommendation.financial_snapshot.source}, but it should still be cross-checked before buying.`
+                    : 'Financial statement coverage is still limited here, so wait if business fundamentals are your main decision anchor.',
+          ]
+        : [];
 
     const toggleWatchlist = (tickerCode: string) => {
         setWatchlist((current) =>
@@ -868,12 +966,20 @@ export default function Home() {
                     <div className="flex flex-wrap items-end justify-between gap-4">
                         <div>
                             <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Quick compare</p>
-                            <h2 className="mt-2 font-display text-3xl">Top candidates side by side</h2>
+                            <h2 className="mt-2 font-display text-3xl">
+                                {compareData ? 'Saved picks side by side' : 'Top candidates side by side'}
+                            </h2>
                         </div>
                         <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            This is the fastest way for a beginner to compare the shortlist without jumping in and out of multiple charts.
+                            {compareData?.summary ??
+                                'This is the fastest way for a beginner to compare the shortlist without jumping in and out of multiple charts.'}
                         </p>
                     </div>
+                    {compareLoading && (
+                        <div className="mt-4 rounded-3xl bg-slate-100 px-5 py-4 text-sm text-slate-500">
+                            Refreshing your saved-pick comparison.
+                        </div>
+                    )}
                     <div className="mt-6 overflow-x-auto">
                         <table className="min-w-full border-separate border-spacing-y-3">
                             <thead>
@@ -884,10 +990,11 @@ export default function Home() {
                                     <th className="px-4 py-2">20-day move</th>
                                     <th className="px-4 py-2">Volatility</th>
                                     <th className="px-4 py-2">Financials</th>
+                                    <th className="px-4 py-2">Current price</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {(dashboard?.compare_rows ?? []).map((row) => (
+                                {compareRows.map((row) => (
                                     <tr key={row.ticker_code} className="rounded-[20px] bg-white shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
                                         <td className="rounded-l-[20px] px-4 py-4">
                                             <button
@@ -911,12 +1018,20 @@ export default function Home() {
                                             {formatPercent(row.price_change_20d)}
                                         </td>
                                         <td className="px-4 py-4 text-sm text-slate-700">{row.volatility.toFixed(1)}%</td>
-                                        <td className="rounded-r-[20px] px-4 py-4 text-sm text-slate-700">{row.financial_label}</td>
+                                        <td className="px-4 py-4 text-sm text-slate-700">{row.financial_label}</td>
+                                        <td className="rounded-r-[20px] px-4 py-4 text-sm text-slate-700">
+                                            {hasCurrentPrice(row) ? `${formatPrice(row.current_price)} KRW` : '-'}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
+                    {compareData?.missing_codes.length ? (
+                        <p className="mt-4 text-sm text-slate-500">
+                            Missing or not ready yet: {compareData.missing_codes.join(', ')}
+                        </p>
+                    ) : null}
                 </section>
 
                 <section className="mt-8 rounded-[32px] border border-[#f3d9a7] bg-[#fff8ea] p-6 shadow-[0_20px_70px_rgba(145,104,27,0.08)]">
@@ -1332,6 +1447,38 @@ export default function Home() {
                                     </p>
                                 </div>
                             </div>
+                            <div className="mt-4 rounded-[28px] bg-[#f5f0e4] p-5">
+                                <div className="flex flex-wrap items-end justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm text-slate-500">Confidence meter</p>
+                                        <p className="mt-2 text-2xl font-semibold text-slate-900">
+                                            {selectedRecommendation ? `${confidenceLevel} confidence` : 'Pick a stock to see confidence'}
+                                        </p>
+                                    </div>
+                                    {selectedRecommendation && (
+                                        <div className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700">
+                                            Score {selectedRecommendation.score}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="mt-4 h-3 overflow-hidden rounded-full bg-white">
+                                    <div
+                                        className={`h-full rounded-full ${
+                                            confidenceLevel === 'High'
+                                                ? 'bg-emerald-500'
+                                                : confidenceLevel === 'Medium'
+                                                  ? 'bg-[#1c4b73]'
+                                                  : 'bg-amber-500'
+                                        }`}
+                                        style={{ width: `${confidencePercent}%` }}
+                                    />
+                                </div>
+                                <p className="mt-4 text-sm leading-6 text-slate-600">
+                                    {selectedRecommendation
+                                        ? `This blends model score, recent price behavior, and available financial context into a beginner-friendly read on how strongly the app wants you to keep studying this pick.`
+                                        : 'Open a recommendation to see how strongly the current data supports it.'}
+                                </p>
+                            </div>
 
                             <div className="mt-6 rounded-[28px] bg-white p-4 shadow-inner">
                                 {chartLoading ? (
@@ -1398,6 +1545,28 @@ export default function Home() {
 
                         <section className="rounded-[32px] bg-[#1c4b73] p-6 text-white shadow-[0_24px_80px_rgba(28,75,115,0.24)]">
                             <p className="text-sm uppercase tracking-[0.24em] text-white/65">Why this stock</p>
+                            <div className="mt-5 grid gap-4 md:grid-cols-2">
+                                <article className="rounded-3xl bg-white/8 p-5">
+                                    <p className="text-sm text-white/65">Why now</p>
+                                    <div className="mt-4 space-y-3">
+                                        {(whyNowPoints.length > 0 ? whyNowPoints : ['Choose a stock to see why it stands out right now.']).map((point) => (
+                                            <div key={point} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/88">
+                                                {point}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </article>
+                                <article className="rounded-3xl bg-[#163a59] p-5">
+                                    <p className="text-sm text-white/65">Why not now</p>
+                                    <div className="mt-4 space-y-3">
+                                        {(whyNotNowPoints.length > 0 ? whyNotNowPoints : ['Choose a stock to see what should make you pause first.']).map((point) => (
+                                            <div key={point} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/88">
+                                                {point}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </article>
+                            </div>
                             <div className="mt-5 grid gap-4 md:grid-cols-2">
                                 <div className="rounded-3xl bg-white/8 p-5">
                                     <p className="text-sm text-white/65">Profile match</p>
