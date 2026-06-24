@@ -13,3 +13,4 @@ frontend/tsconfig.tsbuildinfo
 frontend/.eslintcache
 *.log
 .tmp-matplotlib/
+backend/stock_analysis.db
