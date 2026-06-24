@@ -10,12 +10,23 @@ from pydantic import BaseModel
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from backend.analysis import recommendation_engine
-from backend import database, models
+if __package__ == "backend":
+    from backend.analysis import recommendation_engine
+    from backend import database, models
+else:
+    from analysis import recommendation_engine
+    import database
+    import models
 
 
 RiskProfile = Literal["steady", "balanced", "ambitious"]
 LearningFocus = Literal["dividend", "trend", "value"]
+
+# Compatibility aliases for older scripts that import these symbols from main.
+SessionLocal = database.SessionLocal
+Ticker = models.Ticker
+DailyPrice = models.DailyPrice
+FinancialStatementModel = models.FinancialStatement
 
 
 app = FastAPI(

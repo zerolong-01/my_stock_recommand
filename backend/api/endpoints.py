@@ -3,7 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from backend import database, main, models
+if __package__ == "backend.api":
+    from backend import database, main, models
+else:
+    import database
+    import main
+    import models
 
 router = APIRouter()
 

@@ -7,9 +7,13 @@ can be reused from API handlers and future batch jobs.
 from __future__ import annotations
 
 from statistics import mean
-from typing import Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 
-from backend import models
+if TYPE_CHECKING:
+    try:
+        from backend import models
+    except ModuleNotFoundError:
+        import models
 
 
 def pct_change(current: float, previous: float) -> float:
@@ -65,11 +69,11 @@ def beginner_note(rsi: Optional[float], macd: Optional[float]) -> str:
     return "Treat this as a learning candidate first and a buy decision second."
 
 
-def history_is_usable(prices: list[models.DailyPrice], minimum_points: int = 10) -> bool:
+def history_is_usable(prices: list["models.DailyPrice"], minimum_points: int = 10) -> bool:
     return len(prices) >= minimum_points and all(price.close is not None for price in prices[:minimum_points])
 
 
-def average_recent_volume(prices: list[models.DailyPrice], sessions: int = 10) -> float:
+def average_recent_volume(prices: list["models.DailyPrice"], sessions: int = 10) -> float:
     recent_volumes = [price.volume for price in prices[:sessions] if price.volume is not None]
     if not recent_volumes:
         return 0.0

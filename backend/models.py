@@ -1,6 +1,10 @@
 from sqlalchemy import Boolean, Column, Integer, String, Float, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
-import database
+
+if __package__ == "backend":
+    from backend import database
+else:
+    import database
 
 
 class Ticker(database.Base):
