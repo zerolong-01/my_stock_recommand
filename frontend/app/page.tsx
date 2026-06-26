@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { StockChart } from '../components/StockChart';
 
@@ -31,8 +31,6 @@ interface SummaryCard {
 }
 
 interface ActiveProfile {
-    risk_profile: RiskProfile;
-    learning_focus: LearningFocus;
     label: string;
     description: string;
 }
@@ -40,13 +38,8 @@ interface ActiveProfile {
 interface StarterAllocation {
     ticker_code: string;
     ticker_name: string;
-    sector: string | null;
     weight: number;
     target_amount: number;
-    estimated_shares: number;
-    invested_amount: number;
-    current_price: number;
-    role: string;
     note: string;
 }
 
@@ -70,114 +63,6 @@ interface FinancialSnapshot {
     summary: string;
 }
 
-interface DataSourceSummary {
-    name: string;
-    status: string;
-    description: string;
-}
-
-interface BriefingCard {
-    title: string;
-    label: string;
-    ticker_code: string;
-    ticker_name: string;
-    detail: string;
-}
-
-interface DataHealthCard {
-    label: string;
-    value: string;
-    tone: string;
-    detail: string;
-}
-
-interface CompareRow {
-    ticker_code: string;
-    ticker_name: string;
-    sector: string | null;
-    score: number;
-    risk_level: string;
-    price_change_20d: number;
-    volatility: number;
-    financial_label: string;
-}
-
-interface CompareDetailRow extends CompareRow {
-    market: string;
-    current_price: number;
-    badge: string;
-    reasons: string[];
-    profile_match: string;
-}
-
-interface CompareResponse {
-    requested_codes: string[];
-    matched_count: number;
-    missing_codes: string[];
-    summary: string;
-    rows: CompareDetailRow[];
-}
-
-interface AlternativeIdea {
-    ticker_code: string;
-    ticker_name: string;
-    market: string;
-    sector: string | null;
-    score: number;
-    risk_level: string;
-    current_price: number;
-    price_change_20d: number;
-    volatility: number;
-    badge: string;
-    why_consider: string;
-    tradeoff: string;
-    comparison_label: string;
-}
-
-interface AlternativeResponse {
-    base_ticker_code: string;
-    base_ticker_name: string;
-    summary: string;
-    rows: AlternativeIdea[];
-}
-
-interface EntryPlanStep {
-    label: string;
-    target_amount: number;
-    estimated_shares: number;
-    note: string;
-}
-
-interface EntryPlanResponse {
-    ticker_code: string;
-    ticker_name: string;
-    current_price: number;
-    monthly_budget: number;
-    starter_budget: number;
-    cash_buffer: number;
-    suggested_entries: number;
-    max_single_order: number;
-    confidence_label: string;
-    summary: string;
-    steps: EntryPlanStep[];
-    guardrails: string[];
-}
-
-interface SectorExposureCard {
-    sector: string;
-    shortlist_count: number;
-    starter_weight: number;
-    note: string;
-}
-
-interface RiskAlertCard {
-    title: string;
-    severity: string;
-    detail: string;
-    ticker_code: string | null;
-    ticker_name: string | null;
-}
-
 interface DashboardResponse {
     as_of: string;
     headline: string;
@@ -186,12 +71,6 @@ interface DashboardResponse {
     summary_cards: SummaryCard[];
     active_profile: ActiveProfile;
     starter_plan: StarterPlan;
-    data_sources: DataSourceSummary[];
-    data_health: DataHealthCard[];
-    market_briefing: BriefingCard[];
-    compare_rows: CompareRow[];
-    sector_exposure: SectorExposureCard[];
-    risk_alerts: RiskAlertCard[];
     recommendations: Recommendation[];
 }
 
@@ -203,81 +82,30 @@ interface ChartData {
     close: number;
 }
 
-interface TickerSearchResult {
-    code: string;
-    name: string;
-    market: string;
-    sector: string | null;
-}
-
-interface WatchlistSnapshot {
-    ticker_code: string;
-    ticker_name: string;
-    market: string;
-    sector: string | null;
-    score?: number;
-    risk_level?: string;
-    price_change_20d?: number;
-    fit_for?: string;
-}
-
 type RiskProfile = 'steady' | 'balanced' | 'ambitious';
 type LearningFocus = 'dividend' | 'trend' | 'value';
-type ShortlistFilter = 'all' | 'lower-risk' | 'financial-ready' | 'saved';
-type ShortlistSort = 'recommended' | 'score' | 'stability' | 'momentum';
 
 const API_BASE = 'http://localhost:8000';
+const WATCHLIST_KEY = 'stock-starter-watchlist';
 
-const riskOptions: Array<{
-    value: RiskProfile;
-    title: string;
-    description: string;
-}> = [
-    {
-        value: 'steady',
-        title: 'Steady',
-        description: 'Prefer calmer names and a less stressful first investing experience.',
-    },
-    {
-        value: 'balanced',
-        title: 'Balanced',
-        description: 'Want a mix of stability and learning opportunities.',
-    },
-    {
-        value: 'ambitious',
-        title: 'Ambitious',
-        description: 'Okay with bigger movement if the learning upside feels worth it.',
-    },
+const riskOptions: Array<{ value: RiskProfile; label: string; description: string }> = [
+    { value: 'steady', label: '안정형', description: '변동성이 낮은 후보를 우선으로 봅니다.' },
+    { value: 'balanced', label: '균형형', description: '안정감과 성장성을 함께 고려합니다.' },
+    { value: 'ambitious', label: '도전형', description: '움직임이 큰 종목도 학습 대상으로 봅니다.' },
 ];
 
-const focusOptions: Array<{
-    value: LearningFocus;
-    title: string;
-    description: string;
-}> = [
-    {
-        value: 'dividend',
-        title: 'Stability',
-        description: 'I want calmer charts and easier first-stock confidence.',
-    },
-    {
-        value: 'trend',
-        title: 'Momentum',
-        description: 'Show me stocks with clearer recent direction and signal strength.',
-    },
-    {
-        value: 'value',
-        title: 'Comparison',
-        description: 'I want names that are easier to compare and study as businesses.',
-    },
+const focusOptions: Array<{ value: LearningFocus; label: string; description: string }> = [
+    { value: 'dividend', label: '안정성', description: '처음 투자할 때 부담이 적은 흐름을 봅니다.' },
+    { value: 'trend', label: '추세', description: '최근 방향성과 강도를 중심으로 봅니다.' },
+    { value: 'value', label: '기업비교', description: '사업과 재무를 비교하기 쉬운 종목을 봅니다.' },
 ];
 
 function formatPrice(value: number) {
-    return new Intl.NumberFormat('ko-KR').format(Math.round(value));
+    return `₩${new Intl.NumberFormat('ko-KR').format(Math.round(value))}`;
 }
 
 function formatBudgetLabel(value: number) {
-    return `${new Intl.NumberFormat('ko-KR').format(value)} KRW`;
+    return `월 ${new Intl.NumberFormat('ko-KR').format(value)}원`;
 }
 
 function formatPercent(value: number) {
@@ -285,38 +113,52 @@ function formatPercent(value: number) {
     return `${sign}${value.toFixed(1)}%`;
 }
 
-function hasCurrentPrice(row: CompareRow | CompareDetailRow): row is CompareDetailRow {
-    return typeof (row as CompareDetailRow).current_price === 'number';
+function formatCompactNumber(value: number | null) {
+    if (value === null) {
+        return '-';
+    }
+
+    return new Intl.NumberFormat('ko-KR', {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+    }).format(value);
+}
+
+function getRiskLabel(riskLevel: string) {
+    if (riskLevel.includes('Low')) {
+        return '낮음';
+    }
+    if (riskLevel.includes('High')) {
+        return '높음';
+    }
+    return '보통';
+}
+
+function getToneClasses(tone: string) {
+    if (tone.toLowerCase().includes('good') || tone.toLowerCase().includes('strong')) {
+        return 'bg-emerald-100 text-emerald-700';
+    }
+    if (tone.toLowerCase().includes('warn')) {
+        return 'bg-amber-100 text-amber-700';
+    }
+    return 'bg-slate-200 text-slate-700';
 }
 
 export default function Home() {
     const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
-    const [chartData, setChartData] = useState<ChartData[]>([]);
     const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
     const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [chartLoading, setChartLoading] = useState(false);
-    const [detailLoading, setDetailLoading] = useState(false);
+    const [chartData, setChartData] = useState<ChartData[]>([]);
+    const [watchlist, setWatchlist] = useState<string[]>([]);
     const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced');
     const [learningFocus, setLearningFocus] = useState<LearningFocus>('trend');
     const [monthlyBudget, setMonthlyBudget] = useState(300000);
-    const [watchlist, setWatchlist] = useState<string[]>([]);
-    const [shortlistFilter, setShortlistFilter] = useState<ShortlistFilter>('all');
-    const [shortlistSort, setShortlistSort] = useState<ShortlistSort>('recommended');
-    const [copiedReport, setCopiedReport] = useState(false);
-    const [compareData, setCompareData] = useState<CompareResponse | null>(null);
-    const [compareLoading, setCompareLoading] = useState(false);
-    const [alternativesData, setAlternativesData] = useState<AlternativeResponse | null>(null);
-    const [alternativesLoading, setAlternativesLoading] = useState(false);
-    const [entryPlanData, setEntryPlanData] = useState<EntryPlanResponse | null>(null);
-    const [entryPlanLoading, setEntryPlanLoading] = useState(false);
-    const [tickerSearch, setTickerSearch] = useState('');
-    const [tickerSearchResults, setTickerSearchResults] = useState<TickerSearchResult[]>([]);
-    const [tickerSearchLoading, setTickerSearchLoading] = useState(false);
-    const [watchlistCatalog, setWatchlistCatalog] = useState<Record<string, WatchlistSnapshot>>({});
+    const [dashboardLoading, setDashboardLoading] = useState(true);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     useEffect(() => {
-        const saved = window.localStorage.getItem('stock-starter-watchlist');
+        const saved = window.localStorage.getItem(WATCHLIST_KEY);
         if (!saved) {
             return;
         }
@@ -327,260 +169,82 @@ export default function Home() {
                 setWatchlist(parsed);
             }
         } catch (error) {
-            console.error('Failed to parse watchlist:', error);
+            console.error('관심 종목을 불러오지 못했습니다.', error);
         }
     }, []);
 
     useEffect(() => {
-        window.localStorage.setItem('stock-starter-watchlist', JSON.stringify(watchlist));
+        window.localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
     }, [watchlist]);
 
     useEffect(() => {
-        fetchDashboard(riskProfile, learningFocus, monthlyBudget);
+        setDashboardLoading(true);
+        setErrorMessage(null);
+
+        fetch(`${API_BASE}/dashboard?risk_profile=${riskProfile}&learning_focus=${learningFocus}&monthly_budget=${monthlyBudget}`)
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Dashboard request failed with status ${res.status}`);
+                }
+                return res.json();
+            })
+            .then((data: DashboardResponse) => {
+                setDashboard(data);
+                setDashboardLoading(false);
+            })
+            .catch((error) => {
+                console.error('대시보드를 불러오지 못했습니다.', error);
+                setDashboard(null);
+                setDashboardLoading(false);
+                setErrorMessage('추천 데이터를 불러오지 못했습니다. 백엔드가 실행 중인지 확인해 주세요.');
+            });
     }, [riskProfile, learningFocus, monthlyBudget]);
 
     useEffect(() => {
-        if (!dashboard) {
-            setCompareData(null);
+        if (!dashboard?.recommendations.length) {
+            setSelectedTicker(null);
+            setSelectedRecommendation(null);
+            setChartData([]);
             return;
         }
 
-        const compareCodes = Array.from(
-            new Set(
-                [selectedTicker, ...watchlist]
-                    .filter((code): code is string => Boolean(code))
-                    .slice(0, 4)
-            )
-        );
+        const nextTicker =
+            dashboard.recommendations.find((item) => item.ticker_code === selectedTicker)?.ticker_code ??
+            dashboard.recommendations[0].ticker_code;
 
-        if (compareCodes.length < 2) {
-            setCompareData(null);
-            return;
-        }
-
-        const params = new URLSearchParams();
-        params.set('risk_profile', riskProfile);
-        params.set('learning_focus', learningFocus);
-        compareCodes.forEach((code) => params.append('ticker_codes', code));
-
-        setCompareLoading(true);
-        fetch(`${API_BASE}/compare?${params.toString()}`)
-            .then((res) => {
-                if (!res.ok) {
-                    throw new Error(`Compare request failed with status ${res.status}`);
-                }
-                return res.json();
-            })
-            .then((data: CompareResponse) => {
-                setCompareData(data);
-                setCompareLoading(false);
-            })
-            .catch((error) => {
-                console.error('Failed to fetch compare data:', error);
-                setCompareData(null);
-                setCompareLoading(false);
-            });
-    }, [dashboard, watchlist, selectedTicker, riskProfile, learningFocus]);
+        setSelectedTicker(nextTicker);
+    }, [dashboard, selectedTicker]);
 
     useEffect(() => {
         if (!selectedTicker) {
-            setAlternativesData(null);
             return;
         }
 
-        const params = new URLSearchParams();
-        params.set('risk_profile', riskProfile);
-        params.set('learning_focus', learningFocus);
-        params.set('limit', '3');
-
-        setAlternativesLoading(true);
-        fetch(`${API_BASE}/alternatives/${selectedTicker}?${params.toString()}`)
-            .then((res) => {
-                if (!res.ok) {
-                    throw new Error(`Alternatives request failed with status ${res.status}`);
-                }
-                return res.json();
-            })
-            .then((data: AlternativeResponse) => {
-                setAlternativesData(data);
-                setAlternativesLoading(false);
-            })
-            .catch((error) => {
-                console.error('Failed to fetch alternatives:', error);
-                setAlternativesData(null);
-                setAlternativesLoading(false);
-            });
-    }, [selectedTicker, riskProfile, learningFocus]);
-
-    useEffect(() => {
-        if (!selectedTicker) {
-            setEntryPlanData(null);
-            return;
-        }
-
-        const params = new URLSearchParams();
-        params.set('risk_profile', riskProfile);
-        params.set('learning_focus', learningFocus);
-        params.set('monthly_budget', String(monthlyBudget));
-
-        setEntryPlanLoading(true);
-        fetch(`${API_BASE}/entry-plan/${selectedTicker}?${params.toString()}`)
-            .then((res) => {
-                if (!res.ok) {
-                    throw new Error(`Entry plan request failed with status ${res.status}`);
-                }
-                return res.json();
-            })
-            .then((data: EntryPlanResponse) => {
-                setEntryPlanData(data);
-                setEntryPlanLoading(false);
-            })
-            .catch((error) => {
-                console.error('Failed to fetch entry plan:', error);
-                setEntryPlanData(null);
-                setEntryPlanLoading(false);
-            });
-    }, [selectedTicker, riskProfile, learningFocus, monthlyBudget]);
-
-    useEffect(() => {
-        if (!dashboard) {
-            return;
-        }
-
-        setWatchlistCatalog((current) => {
-            const next = { ...current };
-            dashboard.recommendations.forEach((item) => {
-                next[item.ticker_code] = {
-                    ticker_code: item.ticker_code,
-                    ticker_name: item.ticker_name,
-                    market: item.market,
-                    sector: item.sector,
-                    score: item.score,
-                    risk_level: item.risk_level,
-                    price_change_20d: item.price_change_20d,
-                    fit_for: item.fit_for,
-                };
-            });
-            return next;
+        const params = new URLSearchParams({
+            risk_profile: riskProfile,
+            learning_focus: learningFocus,
         });
-    }, [dashboard]);
 
-    useEffect(() => {
-        if (!compareData) {
-            return;
-        }
-
-        setWatchlistCatalog((current) => {
-            const next = { ...current };
-            compareData.rows.forEach((item) => {
-                next[item.ticker_code] = {
-                    ticker_code: item.ticker_code,
-                    ticker_name: item.ticker_name,
-                    market: item.market,
-                    sector: item.sector,
-                    score: item.score,
-                    risk_level: item.risk_level,
-                    price_change_20d: item.price_change_20d,
-                };
-            });
-            return next;
-        });
-    }, [compareData]);
-
-    useEffect(() => {
-        const searchTerm = tickerSearch.trim();
-        if (searchTerm.length < 1) {
-            setTickerSearchResults([]);
-            setTickerSearchLoading(false);
-            return;
-        }
-
-        const controller = new AbortController();
-        const timer = window.setTimeout(() => {
-            setTickerSearchLoading(true);
-
-            fetch(`${API_BASE}/tickers?limit=8&query=${encodeURIComponent(searchTerm)}`, {
-                signal: controller.signal,
-            })
-                .then((res) => {
-                    if (!res.ok) {
-                        throw new Error(`Ticker search failed with status ${res.status}`);
-                    }
-                    return res.json();
-                })
-                .then((data: TickerSearchResult[]) => {
-                    setTickerSearchResults(data);
-                    setWatchlistCatalog((current) => {
-                        const next = { ...current };
-                        data.forEach((item) => {
-                            next[item.code] = {
-                                ticker_code: item.code,
-                                ticker_name: item.name,
-                                market: item.market,
-                                sector: item.sector,
-                            };
-                        });
-                        return next;
-                    });
-                    setTickerSearchLoading(false);
-                })
-                .catch((error) => {
-                    if (error instanceof DOMException && error.name === 'AbortError') {
-                        return;
-                    }
-                    console.error('Failed to search tickers:', error);
-                    setTickerSearchResults([]);
-                    setTickerSearchLoading(false);
-                });
-        }, 250);
-
-        return () => {
-            controller.abort();
-            window.clearTimeout(timer);
-        };
-    }, [tickerSearch]);
-
-    const fetchDashboard = (risk: RiskProfile, focus: LearningFocus, budget: number) => {
-        setLoading(true);
-        setSelectedRecommendation(null);
-
-        fetch(`${API_BASE}/dashboard?risk_profile=${risk}&learning_focus=${focus}&monthly_budget=${budget}`)
-            .then((res) => res.json())
-            .then((data: DashboardResponse) => {
-                setDashboard(data);
-                setLoading(false);
-
-                const nextTicker =
-                    data.recommendations.find((item) => item.ticker_code === selectedTicker)?.ticker_code ??
-                    data.recommendations[0]?.ticker_code ??
-                    null;
-
-                if (nextTicker) {
-                    handleTickerClick(nextTicker);
-                } else {
-                    setSelectedTicker(null);
-                    setChartData([]);
-                }
-            })
-            .catch((error) => {
-                console.error('Failed to fetch dashboard:', error);
-                setLoading(false);
-            });
-    };
-
-    const handleTickerClick = (tickerCode: string) => {
-        setSelectedTicker(tickerCode);
-        setChartLoading(true);
         setDetailLoading(true);
 
-        fetch(`${API_BASE}/prices/${tickerCode}`)
-            .then((res) => res.json())
-            .then((data) => {
-                const formatted = data
-                    .sort((a: { date: string }, b: { date: string }) => {
-                        return new Date(a.date).getTime() - new Date(b.date).getTime();
-                    })
-                    .map((item: { date: string; open: number; high: number; low: number; close: number }) => ({
+        Promise.all([
+            fetch(`${API_BASE}/prices/${selectedTicker}`).then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Price request failed with status ${res.status}`);
+                }
+                return res.json();
+            }),
+            fetch(`${API_BASE}/recommendations/${selectedTicker}?${params.toString()}`).then((res) => {
+                if (!res.ok) {
+                    throw new Error(`Recommendation request failed with status ${res.status}`);
+                }
+                return res.json();
+            }),
+        ])
+            .then(([priceRows, recommendation]: [Array<{ date: string; open: number; high: number; low: number; close: number }>, Recommendation]) => {
+                const formatted = priceRows
+                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                    .map((item) => ({
                         time: item.date,
                         open: item.open,
                         high: item.high,
@@ -589,1556 +253,484 @@ export default function Home() {
                     }));
 
                 setChartData(formatted);
-                setChartLoading(false);
-            })
-            .catch((error) => {
-                console.error(`Failed to fetch prices for ${tickerCode}:`, error);
-                setChartData([]);
-                setChartLoading(false);
-            });
-
-        const params = new URLSearchParams();
-        params.set('risk_profile', riskProfile);
-        params.set('learning_focus', learningFocus);
-
-        fetch(`${API_BASE}/recommendations/${tickerCode}?${params.toString()}`)
-            .then((res) => {
-                if (!res.ok) {
-                    throw new Error(`Recommendation request failed with status ${res.status}`);
-                }
-                return res.json();
-            })
-            .then((data: Recommendation) => {
-                setSelectedRecommendation(data);
+                setSelectedRecommendation(recommendation);
                 setDetailLoading(false);
             })
             .catch((error) => {
-                console.error(`Failed to fetch recommendation detail for ${tickerCode}:`, error);
+                console.error('상세 정보를 불러오지 못했습니다.', error);
+                setChartData([]);
                 setSelectedRecommendation(null);
                 setDetailLoading(false);
             });
-    };
-    const usesDemoFinancials =
-        dashboard?.recommendations.some((item) => item.financial_snapshot.is_demo) ?? false;
-    const watchlistItems =
-        dashboard?.recommendations.filter((item) => watchlist.includes(item.ticker_code)) ?? [];
-    const watchlistCards = watchlist
-        .map((tickerCode) => watchlistCatalog[tickerCode])
-        .filter((item): item is WatchlistSnapshot => Boolean(item));
-    const compareRows: Array<CompareRow | CompareDetailRow> = compareData?.rows ?? dashboard?.compare_rows ?? [];
-    const selectedRiskOption = riskOptions.find((option) => option.value === riskProfile) ?? riskOptions[1];
-    const selectedFocusOption = focusOptions.find((option) => option.value === learningFocus) ?? focusOptions[1];
-    const planProgress = [
-        { label: 'Comfort picked', done: true },
-        { label: 'Learning goal picked', done: true },
-        { label: 'Budget ready', done: monthlyBudget >= 100000 },
-        { label: 'Stock reviewed', done: Boolean(selectedRecommendation) },
-        { label: 'Watchlist saved', done: watchlist.length > 0 },
-    ];
-    const completedPlanSteps = planProgress.filter((step) => step.done).length;
-    const progressPercent = Math.round((completedPlanSteps / planProgress.length) * 100);
-    const roadmapHighlight =
-        watchlistItems[0] ?? selectedRecommendation ?? dashboard?.recommendations[0] ?? null;
-    const nextActions = [
-        watchlist.length === 0
-            ? 'Save one or two names to your watchlist so you can compare them later without starting over.'
-            : `You already saved ${watchlist.length} stock${watchlist.length > 1 ? 's' : ''}. Compare their risk and sector before buying anything.`,
-        selectedRecommendation
-            ? `Review ${selectedRecommendation.ticker_name}'s beginner note and action guide before making a first small order.`
-            : 'Open one recommendation to see the chart, beginner note, and action guide in detail.',
-        monthlyBudget >= 500000
-            ? 'Because your starter budget is higher, keep part of it as cash buffer and avoid putting it all into one theme.'
-            : 'With a smaller starter budget, focus on learning consistency first instead of chasing too many stocks at once.',
-    ];
-    const selectedSectorExposure = selectedRecommendation
-        ? dashboard?.sector_exposure.find((sector) => sector.sector === (selectedRecommendation.sector ?? 'No sector'))
-        : null;
-    const buyChecklist = [
-        {
-            label: 'Read the beginner note',
-            done: Boolean(selectedRecommendation?.beginner_note),
-            detail: selectedRecommendation?.beginner_note ?? 'Choose a stock first to unlock the plain-language caution note.',
-        },
-        {
-            label: 'Save it for a second look',
-            done: Boolean(selectedRecommendation && watchlist.includes(selectedRecommendation.ticker_code)),
-            detail: selectedRecommendation
-                ? watchlist.includes(selectedRecommendation.ticker_code)
-                    ? 'Saved in your watchlist, so you can revisit it after comparing other names.'
-                    : 'Bookmark this stock before buying so you can step away and come back with a clearer head.'
-                : 'Select a stock to decide whether it is worth saving for later.',
-        },
-        {
-            label: 'Check concentration risk',
-            done: Boolean(selectedSectorExposure && selectedSectorExposure.shortlist_count <= 2),
-            detail: selectedSectorExposure
-                ? `${selectedSectorExposure.sector} appears ${selectedSectorExposure.shortlist_count} time${selectedSectorExposure.shortlist_count > 1 ? 's' : ''} in the shortlist. ${selectedSectorExposure.note}`
-                : 'Open a recommendation to see whether your shortlist leans too heavily on one sector story.',
-        },
-        {
-            label: 'Review financial coverage',
-            done: Boolean(selectedRecommendation?.financial_snapshot.source),
-            detail: selectedRecommendation?.financial_snapshot.source
-                ? selectedRecommendation.financial_snapshot.is_demo
-                    ? 'Financial context is available, but it is currently coming from labeled demo seed data.'
-                    : `Financial context is available from ${selectedRecommendation.financial_snapshot.source}.`
-                : 'Financial statement coverage has not been attached to this stock yet.',
-        },
-        {
-            label: 'Keep a cash buffer',
-            done: Boolean((dashboard?.starter_plan.cash_buffer ?? 0) > 0),
-            detail:
-                dashboard?.starter_plan.cash_buffer && dashboard.starter_plan.cash_buffer > 0
-                    ? `Your current starter plan still keeps ${formatBudgetLabel(dashboard.starter_plan.cash_buffer)} unallocated as breathing room.`
-                    : 'Consider leaving part of the monthly budget unused so one idea does not consume your full learning budget.',
-        },
-    ];
-    const checklistCompleteCount = buyChecklist.filter((item) => item.done).length;
-    const shortlistItems = (dashboard?.recommendations ?? [])
-        .filter((item) => {
-            if (shortlistFilter === 'lower-risk') {
-                return item.risk_level.toLowerCase() !== 'high';
-            }
+    }, [selectedTicker, riskProfile, learningFocus]);
 
-            if (shortlistFilter === 'financial-ready') {
-                return Boolean(item.financial_snapshot.source);
-            }
-
-            if (shortlistFilter === 'saved') {
-                return watchlist.includes(item.ticker_code);
-            }
-
-            return true;
-        })
-        .sort((left, right) => {
-            if (shortlistSort === 'score') {
-                return right.score - left.score;
-            }
-
-            if (shortlistSort === 'stability') {
-                return left.volatility - right.volatility;
-            }
-
-            if (shortlistSort === 'momentum') {
-                return right.price_change_20d - left.price_change_20d;
-            }
-
-            return 0;
-        });
-    const starterBriefLines = [
-        `Risk profile: ${selectedRiskOption.title}`,
-        `Learning focus: ${selectedFocusOption.title}`,
-        `Starter budget: ${formatBudgetLabel(monthlyBudget)}`,
-        roadmapHighlight
-            ? `Primary idea: ${roadmapHighlight.ticker_name} (${roadmapHighlight.ticker_code}) with score ${roadmapHighlight.score} and risk ${roadmapHighlight.risk_level}.`
-            : 'Primary idea: not selected yet.',
-        watchlistCards.length > 0
-            ? `Saved watchlist: ${watchlistCards.map((item) => item.ticker_code).join(', ')}`
-            : 'Saved watchlist: none yet.',
-        nextActions[0],
-        nextActions[1],
-        nextActions[2],
-    ];
-    const starterBrief = starterBriefLines.join('\n');
-    const confidenceLevel = selectedRecommendation
-        ? selectedRecommendation.score >= 85
-            ? 'High'
-            : selectedRecommendation.score >= 75
-              ? 'Medium'
-              : 'Building'
-        : 'Waiting';
-    const confidencePercent = selectedRecommendation
-        ? Math.max(24, Math.min(96, Math.round(selectedRecommendation.score)))
-        : 0;
-    const whyNowPoints = selectedRecommendation
-        ? [
-              selectedRecommendation.profile_match,
-              selectedRecommendation.action_guide,
-              selectedRecommendation.price_change_20d >= 0
-                  ? `Recent momentum is supportive with a ${formatPercent(selectedRecommendation.price_change_20d)} move over 20 days.`
-                  : `The stock pulled back ${formatPercent(selectedRecommendation.price_change_20d)} over 20 days, which may still offer a learning setup if the thesis remains intact.`,
-          ]
-        : [];
-    const whyNotNowPoints = selectedRecommendation
-        ? [
-              selectedRecommendation.beginner_note,
-              selectedRecommendation.volatility >= 35
-                  ? `Volatility is elevated at ${selectedRecommendation.volatility.toFixed(1)}%, so price swings may feel stressful for a first position.`
-                  : `Volatility is ${selectedRecommendation.volatility.toFixed(1)}%, which is manageable but still worth respecting with a small starter size.`,
-              selectedRecommendation.financial_snapshot.is_demo
-                  ? 'Financial coverage is currently supported by labeled demo seed data, so treat the business snapshot as provisional.'
-                  : selectedRecommendation.financial_snapshot.source
-                    ? `Financial context is available from ${selectedRecommendation.financial_snapshot.source}, but it should still be cross-checked before buying.`
-                    : 'Financial statement coverage is still limited here, so wait if business fundamentals are your main decision anchor.',
-          ]
-        : [];
-
-    const toggleWatchlist = (tickerCode: string, snapshot?: WatchlistSnapshot) => {
-        if (snapshot) {
-            setWatchlistCatalog((current) => ({
-                ...current,
-                [tickerCode]: snapshot,
-            }));
+    const watchlistItems = useMemo(() => {
+        if (!dashboard) {
+            return [];
         }
 
+        return dashboard.recommendations.filter((item) => watchlist.includes(item.ticker_code));
+    }, [dashboard, watchlist]);
+
+    const toggleWatchlist = (tickerCode: string) => {
         setWatchlist((current) =>
-            current.includes(tickerCode)
-                ? current.filter((code) => code !== tickerCode)
-                : [...current, tickerCode]
+            current.includes(tickerCode) ? current.filter((item) => item !== tickerCode) : [...current, tickerCode]
         );
     };
 
-    const handleCopyBrief = async () => {
-        try {
-            await navigator.clipboard.writeText(starterBrief);
-            setCopiedReport(true);
-            window.setTimeout(() => setCopiedReport(false), 1800);
-        } catch (error) {
-            console.error('Failed to copy starter brief:', error);
-        }
-    };
+    const budgetPresets = [100000, 300000, 500000, 1000000];
 
     return (
-        <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.28),_transparent_32%),linear-gradient(135deg,_#f6efe4_0%,_#e7f0ec_55%,_#d7e7f5_100%)] text-slate-900">
-            <section className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-12">
-                {usesDemoFinancials && (
-                    <div className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900 shadow-[0_8px_24px_rgba(120,86,18,0.08)]">
-                        Financial guidance currently includes labeled demo seed data so you can review the full beginner flow before live statement ingestion is connected.
-                    </div>
-                )}
-
-                <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-                    <div className="rounded-[32px] border border-white/70 bg-white/80 p-8 shadow-[0_24px_80px_rgba(39,61,51,0.12)] backdrop-blur">
-                        <div className="mb-5 inline-flex items-center gap-3 rounded-full bg-[#173f35] px-4 py-2 text-sm font-medium text-white">
-                            <span className="h-2 w-2 rounded-full bg-[#f4b942]" />
-                            Beginner-first Stock Picks
-                        </div>
-                        <h1 className="max-w-3xl font-display text-4xl leading-tight md:text-6xl">
-                            {dashboard?.headline ?? 'Finding your first stock should feel less overwhelming.'}
-                        </h1>
-                        <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
-                            {dashboard?.subheadline ??
-                                'We are preparing a clearer recommendation flow for new investors.'}
-                        </p>
-                        <div className="mt-8 flex flex-wrap gap-3 text-sm text-slate-700">
-                            <div className="rounded-full bg-[#f4b942]/20 px-4 py-2">Simple reasons instead of finance-heavy language</div>
-                            <div className="rounded-full bg-[#1d6b57]/15 px-4 py-2">Risk translated into beginner-friendly terms</div>
-                            <div className="rounded-full bg-[#3c6ca8]/15 px-4 py-2">Profile-aware ranking like starter investing apps</div>
-                        </div>
-                    </div>
-
-                    <div className="rounded-[32px] bg-[#173f35] p-7 text-white shadow-[0_24px_80px_rgba(16,45,38,0.24)]">
-                        <p className="text-sm uppercase tracking-[0.24em] text-white/65">Quick setup</p>
-                        <div className="mt-5 rounded-[28px] border border-white/10 bg-white/5 p-5">
-                            <p className="text-xs text-[#f4b942]">PROFILE</p>
-                            <h2 className="mt-2 font-display text-2xl">
-                                {dashboard?.active_profile.label ?? 'Choose your beginner style'}
-                            </h2>
-                            <p className="mt-3 text-sm leading-6 text-white/80">
-                                {dashboard?.active_profile.description ??
-                                    'Pick a comfort level and learning goal. The ranking will update right away.'}
+        <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f8f3e8_0%,#f6f7fb_45%,#edf2f7_100%)] text-slate-900">
+            <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 md:px-6 lg:px-8">
+                <section className="overflow-hidden rounded-[32px] border border-white/70 bg-white/85 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur md:p-8">
+                    <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="max-w-2xl">
+                            <p className="text-sm font-medium tracking-[0.2em] text-emerald-700">STOCK STARTER</p>
+                            <h1 className="mt-3 font-display text-4xl leading-tight text-slate-950 md:text-5xl">
+                                복잡한 정보 대신
+                                <br />
+                                지금 보기 쉬운 추천만 보여드립니다
+                            </h1>
+                            <p className="mt-4 text-base leading-7 text-slate-600">
+                                {dashboard?.headline ?? '투자 성향과 예산에 맞춰 핵심 추천 종목을 간단하게 정리했습니다.'}
+                            </p>
+                            <p className="mt-2 text-sm leading-6 text-slate-500">
+                                {dashboard?.subheadline ?? '추천 이유, 주가 흐름, 예산 배분만 빠르게 확인할 수 있습니다.'}
                             </p>
                         </div>
-                        <div className="mt-5 space-y-4">
-                            {(dashboard?.starter_steps ?? []).map((step, index) => (
-                                <div key={step} className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                                    <p className="text-xs text-[#f4b942]">STEP {index + 1}</p>
-                                    <p className="mt-2 text-sm leading-6 text-white/85">{step}</p>
-                                </div>
+                        <div className="grid gap-3 rounded-[28px] bg-slate-950 p-5 text-white shadow-[0_16px_40px_rgba(15,23,42,0.16)] sm:grid-cols-3">
+                            <div>
+                                <p className="text-xs text-white/60">기준 시점</p>
+                                <p className="mt-2 text-lg font-semibold">{dashboard?.as_of ?? '-'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-white/60">선택 예산</p>
+                                <p className="mt-2 text-lg font-semibold">{formatBudgetLabel(monthlyBudget)}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-white/60">관심 종목</p>
+                                <p className="mt-2 text-lg font-semibold">{watchlist.length}개</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+                    <div className="rounded-[28px] border border-white/80 bg-white/85 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+                        <p className="text-sm font-semibold text-slate-500">투자 성향</p>
+                        <div className="mt-4 grid gap-3 md:grid-cols-3">
+                            {riskOptions.map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => setRiskProfile(option.value)}
+                                    className={`rounded-3xl border px-4 py-4 text-left transition ${
+                                        riskProfile === option.value
+                                            ? 'border-emerald-700 bg-emerald-50'
+                                            : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                                    }`}
+                                >
+                                    <p className="font-semibold text-slate-900">{option.label}</p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-600">{option.description}</p>
+                                </button>
                             ))}
                         </div>
                     </div>
-                </div>
 
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/78 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.1)] backdrop-blur">
-                    <div className="grid gap-6 xl:grid-cols-[1fr_1fr_0.92fr]">
+                    <div className="rounded-[28px] border border-white/80 bg-white/85 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+                        <p className="text-sm font-semibold text-slate-500">학습 포인트</p>
+                        <div className="mt-4 grid gap-3">
+                            {focusOptions.map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => setLearningFocus(option.value)}
+                                    className={`rounded-3xl border px-4 py-4 text-left transition ${
+                                        learningFocus === option.value
+                                            ? 'border-sky-700 bg-sky-50'
+                                            : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                                    }`}
+                                >
+                                    <p className="font-semibold text-slate-900">{option.label}</p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-600">{option.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                <section className="rounded-[28px] border border-white/80 bg-white/85 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">1. Risk comfort</p>
-                            <div className="mt-4 grid gap-3">
-                                {riskOptions.map((option) => {
-                                    const active = riskProfile === option.value;
+                            <p className="text-sm font-semibold text-slate-500">월 투자 예산</p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-950">{formatBudgetLabel(monthlyBudget)}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {budgetPresets.map((amount) => (
+                                <button
+                                    key={amount}
+                                    type="button"
+                                    onClick={() => setMonthlyBudget(amount)}
+                                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                                        monthlyBudget === amount
+                                            ? 'bg-slate-950 text-white'
+                                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                    }`}
+                                >
+                                    {new Intl.NumberFormat('ko-KR').format(amount)}원
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <input
+                        className="mt-5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-emerald-700"
+                        type="range"
+                        min={100000}
+                        max={1000000}
+                        step={50000}
+                        value={monthlyBudget}
+                        onChange={(event) => setMonthlyBudget(Number(event.target.value))}
+                    />
+                </section>
+
+                {dashboard?.summary_cards?.length ? (
+                    <section className="grid gap-4 md:grid-cols-3">
+                        {dashboard.summary_cards.slice(0, 3).map((card) => (
+                            <article
+                                key={card.label}
+                                className="rounded-[28px] border border-white/80 bg-white/85 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)]"
+                            >
+                                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getToneClasses(card.tone)}`}>
+                                    {card.label}
+                                </span>
+                                <p className="mt-4 text-3xl font-semibold text-slate-950">{card.value}</p>
+                                <p className="mt-3 text-sm leading-6 text-slate-600">{card.description}</p>
+                            </article>
+                        ))}
+                    </section>
+                ) : null}
+
+                {errorMessage ? (
+                    <section className="rounded-[28px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
+                        {errorMessage}
+                    </section>
+                ) : null}
+
+                <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+                    <section className="rounded-[32px] border border-white/80 bg-white/88 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.07)]">
+                        <div className="flex items-end justify-between gap-4">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-500">추천 종목</p>
+                                <h2 className="mt-2 font-display text-3xl text-slate-950">한눈에 보는 후보</h2>
+                            </div>
+                            <div className="rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-600">
+                                {dashboard?.active_profile?.label ?? '추천 프로필'}
+                            </div>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-slate-600">
+                            {dashboard?.active_profile?.description ?? '현재 조건에 맞는 추천 종목을 점수순으로 보여줍니다.'}
+                        </p>
+
+                        {dashboardLoading ? (
+                            <div className="mt-6 rounded-[24px] bg-slate-50 px-5 py-8 text-sm text-slate-500">
+                                추천 목록을 불러오는 중입니다.
+                            </div>
+                        ) : (
+                            <div className="mt-6 space-y-4">
+                                {dashboard?.recommendations.map((item) => {
+                                    const isSelected = selectedTicker === item.ticker_code;
+                                    const isSaved = watchlist.includes(item.ticker_code);
+
                                     return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setRiskProfile(option.value)}
-                                            className={`rounded-[24px] border px-5 py-4 text-left transition ${
-                                                active
-                                                    ? 'border-[#173f35] bg-[#173f35] text-white'
-                                                    : 'border-slate-200 bg-[#faf7f1] text-slate-900 hover:bg-white'
+                                        <article
+                                            key={item.ticker_code}
+                                            className={`rounded-[28px] border p-5 transition ${
+                                                isSelected
+                                                    ? 'border-emerald-300 bg-emerald-50/70 shadow-[0_14px_30px_rgba(5,150,105,0.10)]'
+                                                    : 'border-slate-200 bg-slate-50/80 hover:border-slate-300'
                                             }`}
                                         >
-                                            <p className="font-semibold">{option.title}</p>
-                                            <p className={`mt-2 text-sm leading-6 ${active ? 'text-white/78' : 'text-slate-600'}`}>
-                                                {option.description}
-                                            </p>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">2. What you want to learn first</p>
-                            <div className="mt-4 grid gap-3">
-                                {focusOptions.map((option) => {
-                                    const active = learningFocus === option.value;
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setLearningFocus(option.value)}
-                                            className={`rounded-[24px] border px-5 py-4 text-left transition ${
-                                                active
-                                                    ? 'border-[#1c4b73] bg-[#1c4b73] text-white'
-                                                    : 'border-slate-200 bg-[#f4f8fb] text-slate-900 hover:bg-white'
-                                            }`}
-                                        >
-                                            <p className="font-semibold">{option.title}</p>
-                                            <p className={`mt-2 text-sm leading-6 ${active ? 'text-white/80' : 'text-slate-600'}`}>
-                                                {option.description}
-                                            </p>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">3. Monthly starter budget</p>
-                            <div className="mt-4 rounded-[24px] border border-slate-200 bg-[#fcfaf5] p-5">
-                                <div className="flex items-center justify-between gap-4">
-                                    <div>
-                                        <p className="text-sm text-slate-500">Budget</p>
-                                        <p className="mt-2 font-display text-3xl">{formatBudgetLabel(monthlyBudget)}</p>
-                                    </div>
-                                    <div className="rounded-full bg-[#173f35] px-4 py-2 text-sm text-white">
-                                        Starter basket ready
-                                    </div>
-                                </div>
-                                <input
-                                    type="range"
-                                    min={100000}
-                                    max={1000000}
-                                    step={50000}
-                                    value={monthlyBudget}
-                                    onChange={(event) => setMonthlyBudget(Number(event.target.value))}
-                                    className="mt-5 w-full accent-[#173f35]"
-                                />
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    {[200000, 300000, 500000, 1000000].map((preset) => (
-                                        <button
-                                            key={preset}
-                                            type="button"
-                                            onClick={() => setMonthlyBudget(preset)}
-                                            className={`rounded-full px-4 py-2 text-sm transition ${
-                                                monthlyBudget === preset
-                                                    ? 'bg-[#173f35] text-white'
-                                                    : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
-                                            }`}
-                                        >
-                                            {formatBudgetLabel(preset)}
-                                        </button>
-                                    ))}
-                                </div>
-                                <p className="mt-4 text-sm leading-6 text-slate-600">
-                                    Use this to preview how a first-month basket could look before committing real money.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-[#d7e5de] bg-[linear-gradient(135deg,_rgba(23,63,53,0.98),_rgba(29,75,115,0.95))] p-6 text-white shadow-[0_24px_80px_rgba(23,63,53,0.2)]">
-                    <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-                        <div>
-                            <div className="flex flex-wrap items-center justify-between gap-4">
-                                <div>
-                                    <p className="text-sm uppercase tracking-[0.24em] text-white/60">Starter roadmap</p>
-                                    <h2 className="mt-2 font-display text-3xl">Your beginner investing setup at a glance</h2>
-                                </div>
-                                <div className="rounded-[24px] bg-white/10 px-4 py-3 text-right">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Progress</p>
-                                    <p className="mt-2 font-display text-3xl">{progressPercent}%</p>
-                                </div>
-                            </div>
-                            <div className="mt-6 grid gap-4 md:grid-cols-3">
-                                <article className="rounded-[24px] bg-white/10 p-5 backdrop-blur">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Risk comfort</p>
-                                    <p className="mt-3 text-2xl font-semibold">{selectedRiskOption.title}</p>
-                                    <p className="mt-3 text-sm leading-6 text-white/75">{selectedRiskOption.description}</p>
-                                </article>
-                                <article className="rounded-[24px] bg-white/10 p-5 backdrop-blur">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Learning focus</p>
-                                    <p className="mt-3 text-2xl font-semibold">{selectedFocusOption.title}</p>
-                                    <p className="mt-3 text-sm leading-6 text-white/75">{selectedFocusOption.description}</p>
-                                </article>
-                                <article className="rounded-[24px] bg-white/10 p-5 backdrop-blur">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-white/55">Starter budget</p>
-                                    <p className="mt-3 text-2xl font-semibold">{formatBudgetLabel(monthlyBudget)}</p>
-                                    <p className="mt-3 text-sm leading-6 text-white/75">
-                                        {watchlist.length > 0
-                                            ? `Watchlist ready with ${watchlist.length} saved idea${watchlist.length > 1 ? 's' : ''}.`
-                                            : 'No saved picks yet, so the next good step is to bookmark one candidate.'}
-                                    </p>
-                                </article>
-                            </div>
-                            <div className="mt-6 grid gap-3 md:grid-cols-5">
-                                {planProgress.map((step) => (
-                                    <div
-                                        key={step.label}
-                                        className={`rounded-[20px] px-4 py-4 text-sm ${
-                                            step.done ? 'bg-white text-slate-900' : 'bg-white/8 text-white/70'
-                                        }`}
-                                    >
-                                        <p className="font-medium">{step.label}</p>
-                                        <p className={`mt-2 text-xs uppercase tracking-[0.14em] ${step.done ? 'text-emerald-600' : 'text-white/45'}`}>
-                                            {step.done ? 'Done' : 'Next'}
-                                        </p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            <article className="rounded-[28px] bg-white/10 p-6 backdrop-blur">
-                                <p className="text-xs uppercase tracking-[0.18em] text-white/55">Primary idea</p>
-                                <h3 className="mt-3 font-display text-3xl">
-                                    {roadmapHighlight?.ticker_name ?? 'Pick a recommendation to begin'}
-                                </h3>
-                                <p className="mt-2 text-sm text-white/70">
-                                    {roadmapHighlight
-                                        ? `${roadmapHighlight.ticker_code} | ${roadmapHighlight.sector ?? 'No sector'}`
-                                        : 'Once you open a recommendation, this area will summarize your most relevant starting point.'}
-                                </p>
-                                <p className="mt-4 text-sm leading-6 text-white/80">
-                                    {roadmapHighlight?.fit_for ??
-                                        'The app will use your selected comfort level, learning focus, and budget to surface a clearer first pick.'}
-                                </p>
-                                {roadmapHighlight && (
-                                    <div className="mt-5 flex flex-wrap gap-2 text-xs">
-                                        <span className="rounded-full bg-[#f4b942] px-3 py-1 font-medium text-slate-900">
-                                            Score {roadmapHighlight.score}
-                                        </span>
-                                        <span className="rounded-full bg-white/10 px-3 py-1 text-white/78">
-                                            Risk {roadmapHighlight.risk_level}
-                                        </span>
-                                        <span className="rounded-full bg-white/10 px-3 py-1 text-white/78">
-                                            20-day {formatPercent(roadmapHighlight.price_change_20d)}
-                                        </span>
-                                    </div>
-                                )}
-                                {roadmapHighlight && (
-                                    <div className="mt-5 flex flex-wrap gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleTickerClick(roadmapHighlight.ticker_code)}
-                                            className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#173f35]"
-                                        >
-                                            Open this pick
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleWatchlist(roadmapHighlight.ticker_code)}
-                                            className="rounded-full border border-white/16 px-4 py-2 text-sm font-medium text-white/85"
-                                        >
-                                            {watchlist.includes(roadmapHighlight.ticker_code) ? 'Remove from watchlist' : 'Save for later'}
-                                        </button>
-                                    </div>
-                                )}
-                            </article>
-
-                            <article className="rounded-[28px] bg-[#f8f3e4] p-6 text-slate-900 shadow-[0_10px_30px_rgba(31,43,38,0.08)]">
-                                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">What to do next</p>
-                                <div className="mt-4 space-y-3">
-                                    {nextActions.map((action, index) => (
-                                        <div key={action} className="rounded-[22px] bg-white px-4 py-4">
-                                            <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Step {index + 1}</p>
-                                            <p className="mt-2 text-sm leading-6 text-slate-700">{action}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </article>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Today&apos;s starter brief</p>
-                            <h2 className="mt-2 font-display text-3xl">A simple summary you can revisit or share</h2>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleCopyBrief}
-                            className={`rounded-full px-4 py-3 text-sm font-medium transition ${
-                                copiedReport ? 'bg-[#173f35] text-white' : 'border border-slate-200 bg-white text-slate-700'
-                            }`}
-                        >
-                            {copiedReport ? 'Copied brief' : 'Copy brief'}
-                        </button>
-                    </div>
-                    <div className="mt-6 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-                        <article className="rounded-[28px] bg-[#f8f6ef] p-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
-                            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Snapshot</p>
-                            <div className="mt-4 space-y-3">
-                                <div className="rounded-[22px] bg-white px-4 py-4">
-                                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Current setup</p>
-                                    <p className="mt-2 text-sm leading-6 text-slate-700">
-                                        {selectedRiskOption.title} risk comfort, {selectedFocusOption.title.toLowerCase()} learning focus, and a monthly starter budget of {formatBudgetLabel(monthlyBudget)}.
-                                    </p>
-                                </div>
-                                <div className="rounded-[22px] bg-white px-4 py-4">
-                                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Lead pick</p>
-                                    <p className="mt-2 text-sm leading-6 text-slate-700">
-                                        {roadmapHighlight
-                                            ? `${roadmapHighlight.ticker_name} stands out right now with score ${roadmapHighlight.score}, risk ${roadmapHighlight.risk_level}, and a ${formatPercent(roadmapHighlight.price_change_20d)} move over 20 days.`
-                                            : 'Open a recommendation to generate a lead pick summary.'}
-                                    </p>
-                                </div>
-                                <div className="rounded-[22px] bg-white px-4 py-4">
-                                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Saved ideas</p>
-                                    <p className="mt-2 text-sm leading-6 text-slate-700">
-                                        {watchlistCards.length > 0
-                                            ? `${watchlistCards.length} stock${watchlistCards.length > 1 ? 's are' : ' is'} saved for later review: ${watchlistCards
-                                                  .map((item) => item.ticker_code)
-                                                  .join(', ')}.`
-                                            : 'No stocks saved yet, so the watchlist can still be used as your compare-later tray.'}
-                                    </p>
-                                </div>
-                            </div>
-                        </article>
-                        <article className="rounded-[28px] bg-[#173f35] p-5 text-white shadow-[0_12px_30px_rgba(23,63,53,0.18)]">
-                            <p className="text-xs uppercase tracking-[0.18em] text-white/55">Copy-ready note</p>
-                            <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-7 text-white/84">{starterBrief}</pre>
-                        </article>
-                    </div>
-                </section>
-
-                <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {(dashboard?.summary_cards ?? []).map((card) => (
-                        <article
-                            key={card.label}
-                            className="rounded-[28px] border border-white/70 bg-white/75 p-6 shadow-[0_14px_40px_rgba(49,67,59,0.08)] backdrop-blur"
-                        >
-                            <p className="text-sm text-slate-500">{card.label}</p>
-                            <p className="mt-3 font-display text-3xl">{card.value}</p>
-                            <p className="mt-3 text-sm leading-6 text-slate-600">{card.description}</p>
-                        </article>
-                    ))}
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Beginner briefing</p>
-                            <h2 className="mt-2 font-display text-3xl">How to read today&apos;s shortlist</h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            Instead of opening ten charts at once, start with these three quick signals to understand what stands out in the list.
-                        </p>
-                    </div>
-                    <div className="mt-6 grid gap-4 md:grid-cols-3">
-                        {(dashboard?.market_briefing ?? []).map((card) => (
-                            <article key={`${card.title}-${card.ticker_code}`} className="rounded-[26px] bg-[#f8f6ef] p-5 shadow-[0_10px_30px_rgba(40,52,47,0.06)]">
-                                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{card.title}</p>
-                                <div className="mt-3 flex items-start justify-between gap-3">
-                                    <div>
-                                        <h3 className="text-2xl font-semibold text-slate-900">{card.ticker_name}</h3>
-                                        <p className="mt-1 text-sm text-slate-500">
-                                            {card.ticker_code} | {card.label}
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTickerClick(card.ticker_code)}
-                                        className="rounded-full bg-[#173f35] px-3 py-2 text-xs font-medium text-white"
-                                    >
-                                        View
-                                    </button>
-                                </div>
-                                <p className="mt-4 text-sm leading-6 text-slate-600">{card.detail}</p>
-                            </article>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-[#173f35] p-6 text-white shadow-[0_22px_80px_rgba(23,63,53,0.22)]">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-white/60">Watchlist</p>
-                            <h2 className="mt-2 font-display text-3xl">Save a few names before you decide</h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-white/75">
-                            Keep two or three stocks here while you learn the patterns. It helps beginners compare ideas without feeling rushed.
-                        </p>
-                    </div>
-                    <div className="mt-6 rounded-[26px] border border-white/12 bg-white/6 p-5">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <p className="text-sm font-semibold text-white">Add any tracked stock</p>
-                                <p className="mt-1 text-sm text-white/65">
-                                    Search by code, company name, or sector to compare a saved pick even if it is outside today&apos;s top shortlist.
-                                </p>
-                            </div>
-                            <div className="min-w-[260px] flex-1 md:max-w-md">
-                                <input
-                                    type="text"
-                                    value={tickerSearch}
-                                    onChange={(event) => setTickerSearch(event.target.value)}
-                                    placeholder="Search 005930, Samsung, semiconductor..."
-                                    className="w-full rounded-2xl border border-white/14 bg-white/10 px-4 py-3 text-sm text-white placeholder:text-white/45 focus:border-[#f4b942] focus:outline-none"
-                                />
-                            </div>
-                        </div>
-                        {(tickerSearchLoading || tickerSearchResults.length > 0 || tickerSearch.trim().length > 0) && (
-                            <div className="mt-4 space-y-2">
-                                {tickerSearchLoading && <div className="text-sm text-white/60">Searching tracked stocks.</div>}
-                                {!tickerSearchLoading && tickerSearch.trim().length > 0 && tickerSearchResults.length === 0 && (
-                                    <div className="text-sm text-white/60">No tracked stocks matched that search yet.</div>
-                                )}
-                                {tickerSearchResults.map((item) => (
-                                    <div
-                                        key={item.code}
-                                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/8 px-4 py-3"
-                                    >
-                                        <div>
-                                            <p className="font-medium text-white">
-                                                {item.name} <span className="text-white/50">({item.code})</span>
-                                            </p>
-                                            <p className="text-sm text-white/60">
-                                                {item.market} | {item.sector ?? 'No sector data'}
-                                            </p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                toggleWatchlist(item.code, {
-                                                    ticker_code: item.code,
-                                                    ticker_name: item.name,
-                                                    market: item.market,
-                                                    sector: item.sector,
-                                                })
-                                            }
-                                            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                                                watchlist.includes(item.code)
-                                                    ? 'border border-white/20 bg-transparent text-white/80'
-                                                    : 'bg-[#f4b942] text-slate-900'
-                                            }`}
-                                        >
-                                            {watchlist.includes(item.code) ? 'Remove' : 'Add to watchlist'}
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    {watchlistCards.length > 0 ? (
-                        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            {watchlistCards.map((item) => (
-                                <article key={item.ticker_code} className="rounded-[26px] bg-white/10 p-5 backdrop-blur">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-xs uppercase tracking-[0.18em] text-white/55">Saved pick</p>
-                                            <h3 className="mt-2 text-2xl font-semibold">{item.ticker_name}</h3>
-                                            <p className="mt-1 text-sm text-white/65">
-                                                {item.ticker_code} | {item.market} | {item.sector ?? 'No sector'}
-                                            </p>
-                                        </div>
-                                        {typeof item.score === 'number' ? (
-                                            <span className="rounded-full bg-[#f4b942] px-3 py-1 text-xs font-medium text-slate-900">
-                                                Score {item.score}
-                                            </span>
-                                        ) : (
-                                            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/75">
-                                                Compare-ready
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className="mt-4 text-sm leading-6 text-white/78">
-                                        {item.fit_for ?? 'Saved for side-by-side review even if it is outside the current top recommendation list.'}
-                                    </p>
-                                    <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/70">
-                                        {item.risk_level && <span className="rounded-full bg-white/10 px-3 py-1">Risk {item.risk_level}</span>}
-                                        {typeof item.price_change_20d === "number" && (
-                                            <span className="rounded-full bg-white/10 px-3 py-1">
-                                                20-day {formatPercent(item.price_change_20d)}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="mt-5 flex flex-wrap gap-3">
-                                        {dashboard?.recommendations.some((recommendation) => recommendation.ticker_code === item.ticker_code) && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleTickerClick(item.ticker_code)}
-                                                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#173f35]"
-                                            >
-                                                Open detail
-                                            </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleWatchlist(item.ticker_code)}
-                                            className="rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white/85"
-                                        >
-                                            Remove
-                                        </button>
-                                    </div>
-                                </article>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="mt-6 rounded-[26px] border border-dashed border-white/20 bg-white/6 p-6 text-sm leading-6 text-white/70">
-                            Your watchlist is empty. Tap the save button on a recommendation or search for a stock code directly to build a compare-later tray.
-                        </div>
-                    )}
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/78 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Quick compare</p>
-                            <h2 className="mt-2 font-display text-3xl">
-                                {compareData ? 'Saved picks side by side' : 'Top candidates side by side'}
-                            </h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            {compareData?.summary ??
-                                'This is the fastest way for a beginner to compare the shortlist without jumping in and out of multiple charts.'}
-                        </p>
-                    </div>
-                    {compareLoading && (
-                        <div className="mt-4 rounded-3xl bg-slate-100 px-5 py-4 text-sm text-slate-500">
-                            Refreshing your saved-pick comparison.
-                        </div>
-                    )}
-                    <div className="mt-6 overflow-x-auto">
-                        <table className="min-w-full border-separate border-spacing-y-3">
-                            <thead>
-                                <tr className="text-left text-sm text-slate-500">
-                                    <th className="px-4 py-2">Stock</th>
-                                    <th className="px-4 py-2">Score</th>
-                                    <th className="px-4 py-2">Risk</th>
-                                    <th className="px-4 py-2">20-day move</th>
-                                    <th className="px-4 py-2">Volatility</th>
-                                    <th className="px-4 py-2">Financials</th>
-                                    <th className="px-4 py-2">Current price</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {compareRows.map((row) => (
-                                    <tr key={row.ticker_code} className="rounded-[20px] bg-white shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
-                                        <td className="rounded-l-[20px] px-4 py-4">
-                                            <button
-                                                type="button"
-                                                onClick={() => handleTickerClick(row.ticker_code)}
-                                                className="text-left"
-                                            >
-                                                <p className="text-lg font-semibold text-slate-900">{row.ticker_name}</p>
-                                                <p className="mt-1 text-sm text-slate-500">
-                                                    {row.ticker_code} | {row.sector ?? 'No sector'}
-                                                </p>
-                                            </button>
-                                        </td>
-                                        <td className="px-4 py-4 font-display text-2xl text-slate-900">{row.score}</td>
-                                        <td className="px-4 py-4">
-                                            <span className="rounded-full bg-[#f4b942]/20 px-3 py-2 text-sm text-[#7b5410]">
-                                                {row.risk_level}
-                                            </span>
-                                        </td>
-                                        <td className={`px-4 py-4 text-sm font-medium ${row.price_change_20d >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                            {formatPercent(row.price_change_20d)}
-                                        </td>
-                                        <td className="px-4 py-4 text-sm text-slate-700">{row.volatility.toFixed(1)}%</td>
-                                        <td className="px-4 py-4 text-sm text-slate-700">{row.financial_label}</td>
-                                        <td className="rounded-r-[20px] px-4 py-4 text-sm text-slate-700">
-                                            {hasCurrentPrice(row) ? `${formatPrice(row.current_price)} KRW` : '-'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    {compareData?.missing_codes.length ? (
-                        <p className="mt-4 text-sm text-slate-500">
-                            Missing or not ready yet: {compareData.missing_codes.join(', ')}
-                        </p>
-                    ) : null}
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-[#f3d9a7] bg-[#fff8ea] p-6 shadow-[0_20px_70px_rgba(145,104,27,0.08)]">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-amber-700">Watch-outs</p>
-                            <h2 className="mt-2 font-display text-3xl text-slate-900">What beginners should slow down for</h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            A good stock list is more useful when it also tells you where caution matters. These alerts highlight the easiest mistakes to avoid.
-                        </p>
-                    </div>
-                    <div className="mt-6 grid gap-4 md:grid-cols-2">
-                        {(dashboard?.risk_alerts ?? []).map((alert) => (
-                            <article key={`${alert.title}-${alert.ticker_code ?? 'general'}`} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(94,74,33,0.06)]">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="font-semibold text-slate-900">{alert.title}</p>
-                                        {alert.ticker_name && (
-                                            <p className="mt-1 text-sm text-slate-500">
-                                                {alert.ticker_name} | {alert.ticker_code}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <span
-                                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                            alert.severity === 'high'
-                                                ? 'bg-rose-100 text-rose-700'
-                                                : 'bg-amber-100 text-amber-700'
-                                        }`}
-                                    >
-                                        {alert.severity}
-                                    </span>
-                                </div>
-                                <p className="mt-4 text-sm leading-6 text-slate-600">{alert.detail}</p>
-                                {alert.ticker_code && (
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTickerClick(alert.ticker_code as string)}
-                                        className="mt-4 rounded-full bg-[#173f35] px-4 py-2 text-sm text-white"
-                                    >
-                                        Review this stock
-                                    </button>
-                                )}
-                            </article>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Sector balance</p>
-                            <h2 className="mt-2 font-display text-3xl">Where your shortlist is concentrated</h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            Even strong-looking picks can become risky when they all lean on the same sector story. This helps beginners spot concentration early.
-                        </p>
-                    </div>
-                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        {(dashboard?.sector_exposure ?? []).map((sector) => (
-                            <article key={sector.sector} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
-                                <p className="text-sm text-slate-500">{sector.sector}</p>
-                                <div className="mt-4 flex items-end justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs text-slate-400">Shortlist count</p>
-                                        <p className="mt-1 font-display text-3xl text-slate-900">{sector.shortlist_count}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-xs text-slate-400">Starter weight</p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900">{sector.starter_weight}%</p>
-                                    </div>
-                                </div>
-                                <p className="mt-4 text-sm leading-6 text-slate-600">{sector.note}</p>
-                            </article>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Data health</p>
-                            <h2 className="mt-2 font-display text-3xl">How fresh and complete the saved data is</h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            This helps beginners understand whether the current screen is powered by fresh market history, demo financials, or a fuller live dataset.
-                        </p>
-                    </div>
-                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        {(dashboard?.data_health ?? []).map((card) => (
-                            <article key={card.label} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
-                                <div className="flex items-center justify-between gap-3">
-                                    <p className="text-sm text-slate-500">{card.label}</p>
-                                    <span
-                                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                            card.tone === 'caution'
-                                                ? 'bg-amber-100 text-amber-700'
-                                                : 'bg-emerald-100 text-emerald-700'
-                                        }`}
-                                    >
-                                        {card.tone}
-                                    </span>
-                                </div>
-                                <p className="mt-3 font-display text-3xl text-slate-900">{card.value}</p>
-                                <p className="mt-3 text-sm leading-6 text-slate-600">{card.detail}</p>
-                            </article>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] border border-white/70 bg-white/76 p-6 shadow-[0_20px_70px_rgba(39,61,51,0.08)] backdrop-blur">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Data mix</p>
-                            <h2 className="mt-2 font-display text-3xl">What powers these recommendations</h2>
-                        </div>
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
-                            Beginner apps feel more trustworthy when they explain the inputs. This panel shows which data streams are already active and which are still being prepared.
-                        </p>
-                    </div>
-                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                        {(dashboard?.data_sources ?? []).map((source) => (
-                            <article key={source.name} className="rounded-[24px] bg-white px-5 py-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
-                                <div className="flex items-center justify-between gap-3">
-                                    <p className="font-semibold text-slate-900">{source.name}</p>
-                                    <span
-                                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                            source.status === 'active'
-                                                ? 'bg-emerald-100 text-emerald-700'
-                                                : 'bg-amber-100 text-amber-700'
-                                        }`}
-                                    >
-                                        {source.status}
-                                    </span>
-                                </div>
-                                <p className="mt-3 text-sm leading-6 text-slate-600">{source.description}</p>
-                            </article>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="mt-8 rounded-[32px] bg-[#173f35] p-6 text-white shadow-[0_24px_80px_rgba(16,45,38,0.2)]">
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p className="text-sm uppercase tracking-[0.24em] text-white/60">Starter basket</p>
-                            <h2 className="mt-2 font-display text-3xl">Your first-month sample plan</h2>
-                            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">
-                                {dashboard?.starter_plan.profile_note ??
-                                    'Pick a profile and budget to generate a sample starter plan.'}
-                            </p>
-                        </div>
-                        <div className="rounded-[24px] border border-white/10 bg-white/8 px-5 py-4 text-right">
-                            <p className="text-xs text-white/60">Estimated investment</p>
-                            <p className="mt-2 font-display text-3xl">
-                                {formatBudgetLabel(dashboard?.starter_plan.estimated_investment ?? 0)}
-                            </p>
-                            <p className="mt-2 text-sm text-white/70">
-                                Cash buffer {formatBudgetLabel(dashboard?.starter_plan.cash_buffer ?? 0)}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-                        <div className="grid gap-4 md:grid-cols-3">
-                            {(dashboard?.starter_plan.allocations ?? []).map((allocation) => (
-                                <article key={allocation.ticker_code} className="rounded-[28px] bg-white/8 p-5">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-[#f4b942]">{allocation.role}</p>
-                                    <h3 className="mt-3 text-2xl font-semibold">{allocation.ticker_name}</h3>
-                                    <p className="mt-1 text-sm text-white/65">
-                                        {allocation.ticker_code} | {allocation.sector ?? 'No sector'}
-                                    </p>
-                                    <div className="mt-5 grid gap-3">
-                                        <div>
-                                            <p className="text-xs text-white/55">Weight</p>
-                                            <p className="mt-1 text-lg font-semibold">{allocation.weight}%</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs text-white/55">Target amount</p>
-                                            <p className="mt-1 text-lg font-semibold">{formatBudgetLabel(allocation.target_amount)}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs text-white/55">Estimated shares</p>
-                                            <p className="mt-1 text-lg font-semibold">{allocation.estimated_shares}</p>
-                                        </div>
-                                    </div>
-                                    <p className="mt-4 text-sm leading-6 text-white/82">{allocation.note}</p>
-                                </article>
-                            ))}
-                        </div>
-
-                        <div className="space-y-4 rounded-[28px] bg-white/8 p-5">
-                            <div>
-                                <p className="text-sm text-white/60">Why this basket helps beginners</p>
-                                <p className="mt-3 text-sm leading-7 text-white/85">
-                                    It spreads your first month across a few roles so you are not forced to learn everything from one stock.
-                                </p>
-                            </div>
-                            <div className="space-y-3">
-                                {(dashboard?.starter_plan.tips ?? []).map((tip) => (
-                                    <div key={tip} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/84">
-                                        {tip}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="mt-10 grid gap-8 xl:grid-cols-[0.92fr_1.08fr]">
-                    <div className="rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-[0_24px_80px_rgba(39,61,51,0.12)] backdrop-blur">
-                        <div className="mb-6 flex items-end justify-between gap-4">
-                            <div>
-                                <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Top picks</p>
-                                <h2 className="mt-2 font-display text-3xl">Personalized shortlist</h2>
-                            </div>
-                            <p className="text-sm text-slate-500">As of {dashboard?.as_of ?? '-'}</p>
-                        </div>
-                        <div className="mb-6 rounded-[28px] bg-[#f5f1e6] p-4">
-                            <div className="flex flex-wrap items-center justify-between gap-4">
-                                <div>
-                                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Browse the list your way</p>
-                                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                                        Start with the app&apos;s default ranking, or narrow the list to calmer names, saved ideas, or stocks with financial coverage ready.
-                                    </p>
-                                </div>
-                                <div className="rounded-full bg-white px-4 py-2 text-sm text-slate-600 shadow-[0_8px_20px_rgba(39,61,51,0.06)]">
-                                    Showing {shortlistItems.length} of {dashboard?.recommendations.length ?? 0}
-                                </div>
-                            </div>
-                            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                                <div>
-                                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Filter</p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {[
-                                            { value: 'all', label: 'All picks' },
-                                            { value: 'lower-risk', label: 'Lower risk first' },
-                                            { value: 'financial-ready', label: 'Financials ready' },
-                                            { value: 'saved', label: 'Saved only' },
-                                        ].map((option) => {
-                                            const active = shortlistFilter === option.value;
-                                            return (
-                                                <button
-                                                    key={option.value}
-                                                    type="button"
-                                                    onClick={() => setShortlistFilter(option.value as ShortlistFilter)}
-                                                    className={`rounded-full px-4 py-2 text-sm transition ${
-                                                        active
-                                                            ? 'bg-[#173f35] text-white'
-                                                            : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
-                                                    }`}
-                                                >
-                                                    {option.label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                                <div>
-                                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Sort</p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {[
-                                            { value: 'recommended', label: 'Recommended order' },
-                                            { value: 'score', label: 'Highest score' },
-                                            { value: 'stability', label: 'Most stable' },
-                                            { value: 'momentum', label: 'Strongest momentum' },
-                                        ].map((option) => {
-                                            const active = shortlistSort === option.value;
-                                            return (
-                                                <button
-                                                    key={option.value}
-                                                    type="button"
-                                                    onClick={() => setShortlistSort(option.value as ShortlistSort)}
-                                                    className={`rounded-full px-4 py-2 text-sm transition ${
-                                                        active
-                                                            ? 'bg-[#1c4b73] text-white'
-                                                            : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
-                                                    }`}
-                                                >
-                                                    {option.label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            {loading && (
-                                <div className="rounded-3xl bg-slate-100 px-5 py-8 text-center text-slate-500">
-                                    Updating the beginner shortlist for your profile.
-                                </div>
-                            )}
-
-                            {!loading && shortlistItems.length === 0 && (
-                                <div className="rounded-3xl border border-dashed border-slate-200 bg-white px-5 py-8 text-center text-slate-500">
-                                    No stocks match this filter yet. Try another filter or save a few names to build your watchlist.
-                                </div>
-                            )}
-
-                            {shortlistItems.map((item, index) => {
-                                const active = selectedTicker === item.ticker_code;
-                                return (
-                                    <button
-                                        key={item.ticker_code}
-                                        type="button"
-                                        onClick={() => handleTickerClick(item.ticker_code)}
-                                        className={`w-full rounded-[28px] border p-5 text-left transition ${
-                                            active
-                                                ? 'border-[#173f35] bg-[#173f35] text-white shadow-[0_20px_60px_rgba(23,63,53,0.28)]'
-                                                : 'border-slate-200 bg-[#f9f6ef] text-slate-900 hover:border-[#cfd8d2] hover:bg-white'
-                                        }`}
-                                    >
-                                        <div className="flex flex-wrap items-start justify-between gap-4">
-                                            <div>
-                                                <div className="flex items-center gap-3">
-                                                    <span
-                                                        className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
-                                                            active ? 'bg-white/15 text-white' : 'bg-[#173f35] text-white'
-                                                        }`}
-                                                    >
-                                                        {index + 1}
-                                                    </span>
-                                                    <div>
-                                                        <p className="text-xl font-semibold">{item.ticker_name}</p>
-                                                        <p className={`text-sm ${active ? 'text-white/70' : 'text-slate-500'}`}>
-                                                            {item.ticker_code} | {item.market}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                                                    <span className={`rounded-full px-3 py-1 ${active ? 'bg-white/12 text-white' : 'bg-white text-slate-700'}`}>
-                                                        {item.badge}
-                                                    </span>
-                                                    <span className={`rounded-full px-3 py-1 ${active ? 'bg-[#f4b942] text-slate-900' : 'bg-[#f4b942]/20 text-[#7b5410]'}`}>
-                                                        Risk {item.risk_level}
-                                                    </span>
-                                                    {watchlist.includes(item.ticker_code) && (
-                                                        <span className={`rounded-full px-3 py-1 ${active ? 'bg-white/18 text-white' : 'bg-[#173f35]/12 text-[#173f35]'}`}>
-                                                            Saved
+                                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                                <div>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h3 className="text-xl font-semibold text-slate-950">{item.ticker_name}</h3>
+                                                        <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-500">
+                                                            {item.ticker_code}
                                                         </span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            <div className="text-right">
-                                                <p className={`text-sm ${active ? 'text-white/70' : 'text-slate-500'}`}>Score</p>
-                                                <p className="font-display text-4xl">{item.score}</p>
-                                                <p className={`mt-2 text-sm ${item.price_change_20d >= 0 ? 'text-emerald-300' : active ? 'text-rose-200' : 'text-rose-500'}`}>
-                                                    20-day move {formatPercent(item.price_change_20d)}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <p className={`mt-4 text-sm leading-6 ${active ? 'text-white/82' : 'text-slate-600'}`}>
-                                            {item.fit_for}
-                                        </p>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div className="space-y-8">
-                        <section className="rounded-[32px] border border-white/70 bg-white/82 p-6 shadow-[0_24px_80px_rgba(39,61,51,0.12)] backdrop-blur">
-                            <div className="flex flex-wrap items-start justify-between gap-4">
-                                <div>
-                                    <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Detail board</p>
-                                    <h2 className="mt-2 font-display text-3xl">
-                                        {selectedRecommendation?.ticker_name ?? 'Select a stock'}
-                                    </h2>
-                                    <p className="mt-2 text-sm text-slate-500">
-                                        {selectedRecommendation?.sector ?? 'No sector data'} | {selectedRecommendation?.ticker_code ?? '-'}
-                                    </p>
-                                </div>
-                                {selectedRecommendation && (
-                                    <div className="flex flex-wrap items-center justify-end gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleWatchlist(selectedRecommendation.ticker_code)}
-                                            className={`rounded-full px-4 py-3 text-sm font-medium transition ${
-                                                watchlist.includes(selectedRecommendation.ticker_code)
-                                                    ? 'bg-[#173f35] text-white'
-                                                    : 'border border-slate-200 bg-white text-slate-700'
-                                            }`}
-                                        >
-                                            {watchlist.includes(selectedRecommendation.ticker_code) ? 'Saved to watchlist' : 'Save to watchlist'}
-                                        </button>
-                                        <div className="rounded-3xl bg-[#f5f0e4] px-4 py-3 text-right">
-                                            <p className="text-xs text-slate-500">Current price</p>
-                                            <p className="font-display text-3xl">{formatPrice(selectedRecommendation.current_price)} KRW</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="mt-6 grid gap-4 md:grid-cols-3">
-                                <div className="rounded-3xl bg-[#f7f9f5] p-4">
-                                    <p className="text-sm text-slate-500">Who it fits</p>
-                                    <p className="mt-2 text-lg font-semibold">{selectedRecommendation?.fit_for ?? '-'}</p>
-                                </div>
-                                <div className="rounded-3xl bg-[#f7f9f5] p-4">
-                                    <p className="text-sm text-slate-500">Volatility</p>
-                                    <p className="mt-2 text-lg font-semibold">
-                                        {selectedRecommendation ? `${selectedRecommendation.volatility.toFixed(1)}%` : '-'}
-                                    </p>
-                                </div>
-                                <div className="rounded-3xl bg-[#f7f9f5] p-4">
-                                    <p className="text-sm text-slate-500">20-day move</p>
-                                    <p className="mt-2 text-lg font-semibold">
-                                        {selectedRecommendation ? formatPercent(selectedRecommendation.price_change_20d) : '-'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="mt-4 rounded-[28px] bg-[#f5f0e4] p-5">
-                                <div className="flex flex-wrap items-end justify-between gap-4">
-                                    <div>
-                                        <p className="text-sm text-slate-500">Confidence meter</p>
-                                        <p className="mt-2 text-2xl font-semibold text-slate-900">
-                                            {selectedRecommendation ? `${confidenceLevel} confidence` : 'Pick a stock to see confidence'}
-                                        </p>
-                                    </div>
-                                    {selectedRecommendation && (
-                                        <div className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700">
-                                            Score {selectedRecommendation.score}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="mt-4 h-3 overflow-hidden rounded-full bg-white">
-                                    <div
-                                        className={`h-full rounded-full ${
-                                            confidenceLevel === 'High'
-                                                ? 'bg-emerald-500'
-                                                : confidenceLevel === 'Medium'
-                                                  ? 'bg-[#1c4b73]'
-                                                  : 'bg-amber-500'
-                                        }`}
-                                        style={{ width: `${confidencePercent}%` }}
-                                    />
-                                </div>
-                                <p className="mt-4 text-sm leading-6 text-slate-600">
-                                    {selectedRecommendation
-                                        ? `This blends model score, recent price behavior, and available financial context into a beginner-friendly read on how strongly the app wants you to keep studying this pick.`
-                                        : 'Open a recommendation to see how strongly the current data supports it.'}
-                                </p>
-                            </div>
-
-                            <div className="mt-6 rounded-[28px] bg-white p-4 shadow-inner">
-                                {chartLoading ? (
-                                    <div className="flex h-[420px] items-center justify-center text-slate-500">
-                                        Loading chart data.
-                                    </div>
-                                ) : chartData.length > 0 ? (
-                                    <StockChart
-                                        data={chartData}
-                                        colors={{
-                                            backgroundColor: '#ffffff',
-                                            textColor: '#425466',
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="flex h-[420px] items-center justify-center text-slate-500">
-                                        No chart data available for this stock.
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="mt-6 rounded-[28px] bg-[#f7f9f5] p-5">
-                                <div className="flex flex-wrap items-end justify-between gap-4">
-                                    <div>
-                                        <p className="text-sm uppercase tracking-[0.18em] text-slate-400">Alternative paths</p>
-                                        <h3 className="mt-2 text-2xl font-semibold text-slate-900">
-                                            {selectedRecommendation
-                                                ? `If ${selectedRecommendation.ticker_name} feels tricky, compare these next`
-                                                : 'Select a stock to unlock alternatives'}
-                                        </h3>
-                                    </div>
-                                    {selectedRecommendation && (
-                                        <span className="rounded-full bg-white px-4 py-2 text-sm text-slate-600 shadow-[0_8px_20px_rgba(39,61,51,0.06)]">
-                                            Compare before committing
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="mt-3 text-sm leading-6 text-slate-600">
-                                    {alternativesData?.summary ??
-                                        'The app will suggest calmer backups or stronger comparison ideas once you open a stock in the detail board.'}
-                                </p>
-                                {alternativesLoading || detailLoading ? (
-                                    <div className="mt-4 rounded-3xl bg-white px-5 py-4 text-sm text-slate-500">
-                                        Looking for nearby alternatives with a similar learning fit.
-                                    </div>
-                                ) : alternativesData?.rows.length ? (
-                                    <div className="mt-5 grid gap-4 md:grid-cols-3">
-                                        {alternativesData.rows.map((item) => (
-                                            <article key={item.ticker_code} className="rounded-[24px] bg-white p-5 shadow-[0_8px_24px_rgba(45,61,54,0.06)]">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">{item.comparison_label}</p>
-                                                        <h4 className="mt-2 text-xl font-semibold text-slate-900">{item.ticker_name}</h4>
-                                                        <p className="mt-1 text-sm text-slate-500">
-                                                            {item.ticker_code} | {item.market}
-                                                        </p>
+                                                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
+                                                            {item.badge}
+                                                        </span>
                                                     </div>
-                                                    <div className="rounded-2xl bg-[#f5f0e4] px-3 py-2 text-right">
-                                                        <p className="text-xs text-slate-500">Score</p>
-                                                        <p className="font-display text-2xl text-slate-900">{item.score}</p>
+                                                    <p className="mt-2 text-sm text-slate-500">
+                                                        {item.market}
+                                                        {item.sector ? ` · ${item.sector}` : ''}
+                                                    </p>
+                                                    <p className="mt-3 text-sm leading-6 text-slate-600">{item.fit_for}</p>
+                                                </div>
+                                                <div className="grid min-w-[180px] grid-cols-2 gap-3">
+                                                    <div className="rounded-2xl bg-white px-4 py-3">
+                                                        <p className="text-xs text-slate-400">현재가</p>
+                                                        <p className="mt-1 font-semibold text-slate-950">{formatPrice(item.current_price)}</p>
                                                     </div>
-                                                </div>
-                                                <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                                                    <span className="rounded-full bg-[#173f35]/10 px-3 py-1 text-[#173f35]">{item.badge}</span>
-                                                    <span className="rounded-full bg-[#f4b942]/20 px-3 py-1 text-[#7b5410]">Risk {item.risk_level}</span>
-                                                </div>
-                                                <p className="mt-4 text-sm leading-6 text-slate-600">{item.why_consider}</p>
-                                                <div className="mt-4 rounded-2xl bg-[#f8f6ef] px-4 py-3 text-sm leading-6 text-slate-600">
-                                                    Trade-off: {item.tradeoff}
-                                                </div>
-                                                <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-600">
-                                                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                                        <p className="text-xs text-slate-400">20-day move</p>
-                                                        <p className={`mt-1 font-semibold ${item.price_change_20d >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                    <div className="rounded-2xl bg-white px-4 py-3">
+                                                        <p className="text-xs text-slate-400">20일 변화</p>
+                                                        <p
+                                                            className={`mt-1 font-semibold ${
+                                                                item.price_change_20d >= 0 ? 'text-rose-600' : 'text-sky-700'
+                                                            }`}
+                                                        >
                                                             {formatPercent(item.price_change_20d)}
                                                         </p>
                                                     </div>
-                                                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                                        <p className="text-xs text-slate-400">Volatility</p>
-                                                        <p className="mt-1 font-semibold text-slate-900">{item.volatility.toFixed(1)}%</p>
+                                                    <div className="rounded-2xl bg-white px-4 py-3">
+                                                        <p className="text-xs text-slate-400">추천 점수</p>
+                                                        <p className="mt-1 font-semibold text-slate-950">{item.score.toFixed(1)}</p>
+                                                    </div>
+                                                    <div className="rounded-2xl bg-white px-4 py-3">
+                                                        <p className="text-xs text-slate-400">리스크</p>
+                                                        <p className="mt-1 font-semibold text-slate-950">{getRiskLabel(item.risk_level)}</p>
                                                     </div>
                                                 </div>
-                                                <div className="mt-5 flex flex-wrap gap-3">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleTickerClick(item.ticker_code)}
-                                                        className="rounded-full bg-[#173f35] px-4 py-2 text-sm font-medium text-white"
-                                                    >
-                                                        Open this instead
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            toggleWatchlist(item.ticker_code, {
-                                                                ticker_code: item.ticker_code,
-                                                                ticker_name: item.ticker_name,
-                                                                market: item.market,
-                                                                sector: item.sector,
-                                                                score: item.score,
-                                                                risk_level: item.risk_level,
-                                                                price_change_20d: item.price_change_20d,
-                                                            })
-                                                        }
-                                                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700"
-                                                    >
-                                                        {watchlist.includes(item.ticker_code) ? 'Remove saved' : 'Save alternative'}
-                                                    </button>
-                                                </div>
-                                            </article>
-                                        ))}
+                                            </div>
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedTicker(item.ticker_code)}
+                                                    className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white"
+                                                >
+                                                    자세히 보기
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleWatchlist(item.ticker_code)}
+                                                    className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+                                                >
+                                                    {isSaved ? '관심 종목 해제' : '관심 종목 저장'}
+                                                </button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </section>
+
+                    <section className="space-y-6">
+                        <section className="rounded-[32px] border border-white/80 bg-white/88 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.07)]">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-500">선택 종목 상세</p>
+                                    <h2 className="mt-2 font-display text-3xl text-slate-950">
+                                        {selectedRecommendation?.ticker_name ?? '종목을 선택해 주세요'}
+                                    </h2>
+                                    <p className="mt-2 text-sm text-slate-500">
+                                        {selectedRecommendation
+                                            ? `${selectedRecommendation.ticker_code} · ${selectedRecommendation.market}`
+                                            : '왼쪽 목록에서 종목을 선택하면 상세 정보가 열립니다.'}
+                                    </p>
+                                </div>
+                                {selectedRecommendation ? (
+                                    <div className="rounded-[24px] bg-slate-950 px-4 py-3 text-white">
+                                        <p className="text-xs text-white/60">추천 점수</p>
+                                        <p className="mt-1 text-2xl font-semibold">{selectedRecommendation.score.toFixed(1)}</p>
                                     </div>
-                                ) : (
-                                    <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
-                                        No alternatives are ready yet for this stock. Try another saved pick or refresh after more market history is collected.
-                                    </div>
-                                )}
+                                ) : null}
                             </div>
 
-                            <div className="mt-6 rounded-[28px] bg-[#173f35] p-5 text-white shadow-[0_18px_50px_rgba(23,63,53,0.14)]">
-                                <div className="flex flex-wrap items-end justify-between gap-4">
-                                    <div>
-                                        <p className="text-sm uppercase tracking-[0.18em] text-white/55">Entry plan</p>
-                                        <h3 className="mt-2 text-2xl font-semibold">
-                                            {selectedRecommendation
-                                                ? `How to approach ${selectedRecommendation.ticker_name} without rushing`
-                                                : 'Select a stock to build an entry plan'}
-                                        </h3>
-                                    </div>
-                                    {entryPlanData && (
-                                        <div className="rounded-2xl bg-white/10 px-4 py-3 text-right">
-                                            <p className="text-xs text-white/55">Starter size</p>
-                                            <p className="mt-1 text-xl font-semibold">{formatBudgetLabel(entryPlanData.starter_budget)}</p>
-                                            <p className="mt-1 text-sm text-white/70">{entryPlanData.confidence_label}</p>
-                                        </div>
-                                    )}
+                            {detailLoading ? (
+                                <div className="mt-6 rounded-[24px] bg-slate-50 px-5 py-8 text-sm text-slate-500">
+                                    상세 정보를 불러오는 중입니다.
                                 </div>
-                                <p className="mt-3 text-sm leading-6 text-white/80">
-                                    {entryPlanData?.summary ??
-                                        'Once you choose a stock, the app can suggest a slower first-entry plan based on your monthly budget and the stock’s recent behavior.'}
-                                </p>
-                                {entryPlanLoading || detailLoading ? (
-                                    <div className="mt-4 rounded-3xl bg-white/8 px-5 py-4 text-sm text-white/72">
-                                        Building a paced entry plan for this stock.
+                            ) : selectedRecommendation ? (
+                                <>
+                                    <div className="mt-6 grid gap-4 md:grid-cols-3">
+                                        <div className="rounded-[24px] bg-slate-50 p-4">
+                                            <p className="text-xs text-slate-400">현재가</p>
+                                            <p className="mt-2 text-2xl font-semibold text-slate-950">
+                                                {formatPrice(selectedRecommendation.current_price)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-[24px] bg-slate-50 p-4">
+                                            <p className="text-xs text-slate-400">변동성</p>
+                                            <p className="mt-2 text-2xl font-semibold text-slate-950">
+                                                {selectedRecommendation.volatility.toFixed(1)}%
+                                            </p>
+                                        </div>
+                                        <div className="rounded-[24px] bg-slate-50 p-4">
+                                            <p className="text-xs text-slate-400">성향 적합도</p>
+                                            <p className="mt-2 text-lg font-semibold text-slate-950">{selectedRecommendation.badge}</p>
+                                        </div>
                                     </div>
-                                ) : entryPlanData ? (
-                                    <>
-                                        <div className="mt-5 grid gap-4 md:grid-cols-4">
-                                            <div className="rounded-3xl bg-white/8 p-4">
-                                                <p className="text-xs text-white/55">Suggested entries</p>
-                                                <p className="mt-2 text-2xl font-semibold">{entryPlanData.suggested_entries}</p>
+
+                                    <div className="mt-6 overflow-hidden rounded-[28px] border border-slate-200 bg-white">
+                                        {chartData.length > 0 ? (
+                                            <StockChart
+                                                data={chartData}
+                                                colors={{
+                                                    backgroundColor: '#ffffff',
+                                                    textColor: '#475569',
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="px-5 py-10 text-center text-sm text-slate-500">
+                                                차트 데이터가 아직 충분하지 않습니다.
                                             </div>
-                                            <div className="rounded-3xl bg-white/8 p-4">
-                                                <p className="text-xs text-white/55">Max single order</p>
-                                                <p className="mt-2 text-2xl font-semibold">{formatBudgetLabel(entryPlanData.max_single_order)}</p>
-                                            </div>
-                                            <div className="rounded-3xl bg-white/8 p-4">
-                                                <p className="text-xs text-white/55">Cash buffer</p>
-                                                <p className="mt-2 text-2xl font-semibold">{formatBudgetLabel(entryPlanData.cash_buffer)}</p>
-                                            </div>
-                                            <div className="rounded-3xl bg-white/8 p-4">
-                                                <p className="text-xs text-white/55">Current price</p>
-                                                <p className="mt-2 text-2xl font-semibold">{formatPrice(entryPlanData.current_price)} KRW</p>
-                                            </div>
-                                        </div>
-                                        <div className="mt-5 grid gap-4 md:grid-cols-3">
-                                            {entryPlanData.steps.map((step) => (
-                                                <article key={step.label} className="rounded-[24px] bg-white/8 p-5">
-                                                    <p className="text-xs uppercase tracking-[0.16em] text-[#f4b942]">{step.label}</p>
-                                                    <p className="mt-3 text-2xl font-semibold">{formatBudgetLabel(step.target_amount)}</p>
-                                                    <p className="mt-2 text-sm text-white/72">
-                                                        Estimated shares {step.estimated_shares}
-                                                    </p>
-                                                    <p className="mt-4 text-sm leading-6 text-white/82">{step.note}</p>
-                                                </article>
-                                            ))}
-                                        </div>
-                                        <div className="mt-5 rounded-[24px] bg-white/8 p-5">
-                                            <p className="text-sm text-white/60">Guardrails</p>
-                                            <div className="mt-4 space-y-3">
-                                                {entryPlanData.guardrails.map((guardrail) => (
-                                                    <div key={guardrail} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/84">
-                                                        {guardrail}
-                                                    </div>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-6 grid gap-4">
+                                        <article className="rounded-[24px] bg-emerald-50 p-5">
+                                            <p className="text-sm font-semibold text-emerald-800">추천 이유</p>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {selectedRecommendation.reasons.map((reason) => (
+                                                    <span key={reason} className="rounded-full bg-white px-3 py-2 text-sm text-slate-700">
+                                                        {reason}
+                                                    </span>
                                                 ))}
                                             </div>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="mt-4 rounded-3xl border border-dashed border-white/15 bg-white/6 px-5 py-4 text-sm text-white/70">
-                                        No entry plan is ready yet for this stock. Try opening another candidate after more history is saved.
+                                        </article>
+                                        <article className="rounded-[24px] bg-slate-50 p-5">
+                                            <p className="text-sm font-semibold text-slate-700">초보자 메모</p>
+                                            <p className="mt-3 text-sm leading-7 text-slate-600">{selectedRecommendation.beginner_note}</p>
+                                        </article>
+                                        <article className="rounded-[24px] bg-sky-50 p-5">
+                                            <p className="text-sm font-semibold text-sky-800">다음 행동 제안</p>
+                                            <p className="mt-3 text-sm leading-7 text-slate-700">{selectedRecommendation.action_guide}</p>
+                                        </article>
+                                        <article className="rounded-[24px] bg-amber-50 p-5">
+                                            <p className="text-sm font-semibold text-amber-800">현재 성향과의 궁합</p>
+                                            <p className="mt-3 text-sm leading-7 text-slate-700">{selectedRecommendation.profile_match}</p>
+                                        </article>
                                     </div>
-                                )}
-                            </div>
+                                </>
+                            ) : (
+                                <div className="mt-6 rounded-[24px] bg-slate-50 px-5 py-8 text-sm text-slate-500">
+                                    표시할 종목 상세 정보가 없습니다.
+                                </div>
+                            )}
                         </section>
 
-                        <section className="rounded-[32px] border border-[#f0dcc2] bg-[#fff7ea] p-6 shadow-[0_20px_70px_rgba(112,82,22,0.08)]">
-                            <div className="flex flex-wrap items-end justify-between gap-4">
-                                <div>
-                                    <p className="text-sm uppercase tracking-[0.24em] text-amber-700">Before you buy</p>
-                                    <h2 className="mt-2 font-display text-3xl text-slate-900">First-purchase checklist</h2>
+                        <section className="rounded-[32px] border border-white/80 bg-white/88 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.07)]">
+                            <p className="text-sm font-semibold text-slate-500">예산 배분 가이드</p>
+                            <h2 className="mt-2 font-display text-3xl text-slate-950">처음 시작할 때의 기준</h2>
+                            <p className="mt-3 text-sm leading-6 text-slate-600">
+                                {dashboard?.starter_plan.profile_note ?? '월 예산을 무리 없이 나눠보는 기준입니다.'}
+                            </p>
+                            <div className="mt-5 grid gap-4 md:grid-cols-3">
+                                <div className="rounded-[24px] bg-slate-50 p-4">
+                                    <p className="text-xs text-slate-400">월 예산</p>
+                                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                                        {formatPrice(dashboard?.starter_plan.monthly_budget ?? monthlyBudget)}
+                                    </p>
                                 </div>
-                                <div className="rounded-[24px] bg-white px-4 py-3 text-right shadow-[0_8px_20px_rgba(112,82,22,0.08)]">
-                                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Readiness</p>
-                                    <p className="mt-2 font-display text-3xl text-slate-900">
-                                        {checklistCompleteCount}/{buyChecklist.length}
+                                <div className="rounded-[24px] bg-slate-50 p-4">
+                                    <p className="text-xs text-slate-400">권장 투자금</p>
+                                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                                        {formatPrice(dashboard?.starter_plan.estimated_investment ?? 0)}
+                                    </p>
+                                </div>
+                                <div className="rounded-[24px] bg-slate-50 p-4">
+                                    <p className="text-xs text-slate-400">현금 여유분</p>
+                                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                                        {formatPrice(dashboard?.starter_plan.cash_buffer ?? 0)}
                                     </p>
                                 </div>
                             </div>
-                            <p className="mt-4 text-sm leading-6 text-slate-600">
-                                Beginner investing apps usually slow you down before the first order. This checklist turns the current recommendation into a few calm verification steps.
-                            </p>
-                            <div className="mt-6 space-y-3">
-                                {buyChecklist.map((item) => (
-                                    <article
-                                        key={item.label}
-                                        className={`rounded-[24px] px-5 py-5 shadow-[0_8px_24px_rgba(94,74,33,0.06)] ${
-                                            item.done ? 'bg-white' : 'bg-[#fffaf2]'
-                                        }`}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
+
+                            <div className="mt-5 space-y-3">
+                                {dashboard?.starter_plan.allocations.slice(0, 3).map((allocation) => (
+                                    <article key={allocation.ticker_code} className="rounded-[24px] bg-slate-50 px-5 py-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
                                             <div>
-                                                <p className="font-semibold text-slate-900">{item.label}</p>
-                                                <p className="mt-3 text-sm leading-6 text-slate-600">{item.detail}</p>
+                                                <p className="font-semibold text-slate-900">{allocation.ticker_name}</p>
+                                                <p className="mt-1 text-sm text-slate-500">{allocation.weight}% 비중</p>
                                             </div>
-                                            <span
-                                                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                                    item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                                                }`}
-                                            >
-                                                {item.done ? 'checked' : 'review'}
-                                            </span>
+                                            <p className="text-lg font-semibold text-slate-950">
+                                                {formatPrice(allocation.target_amount)}
+                                            </p>
                                         </div>
+                                        <p className="mt-3 text-sm leading-6 text-slate-600">{allocation.note}</p>
                                     </article>
                                 ))}
                             </div>
                         </section>
 
-                        <section className="rounded-[32px] bg-[#1c4b73] p-6 text-white shadow-[0_24px_80px_rgba(28,75,115,0.24)]">
-                            <p className="text-sm uppercase tracking-[0.24em] text-white/65">Why this stock</p>
-                            <div className="mt-5 grid gap-4 md:grid-cols-2">
-                                <article className="rounded-3xl bg-white/8 p-5">
-                                    <p className="text-sm text-white/65">Why now</p>
-                                    <div className="mt-4 space-y-3">
-                                        {(whyNowPoints.length > 0 ? whyNowPoints : ['Choose a stock to see why it stands out right now.']).map((point) => (
-                                            <div key={point} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/88">
-                                                {point}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </article>
-                                <article className="rounded-3xl bg-[#163a59] p-5">
-                                    <p className="text-sm text-white/65">Why not now</p>
-                                    <div className="mt-4 space-y-3">
-                                        {(whyNotNowPoints.length > 0 ? whyNotNowPoints : ['Choose a stock to see what should make you pause first.']).map((point) => (
-                                            <div key={point} className="rounded-2xl bg-white/6 px-4 py-3 text-sm leading-6 text-white/88">
-                                                {point}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </article>
-                            </div>
-                            <div className="mt-5 grid gap-4 md:grid-cols-2">
-                                <div className="rounded-3xl bg-white/8 p-5">
-                                    <p className="text-sm text-white/65">Profile match</p>
-                                    <p className="mt-3 text-sm leading-7 text-white/88">
-                                        {selectedRecommendation?.profile_match ?? 'Choose a stock to see why it fits your profile.'}
-                                    </p>
+                        <section className="grid gap-6 lg:grid-cols-2">
+                            <article className="rounded-[32px] border border-white/80 bg-white/88 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.07)]">
+                                <p className="text-sm font-semibold text-slate-500">관심 종목</p>
+                                <h2 className="mt-2 font-display text-2xl text-slate-950">저장한 후보</h2>
+                                <div className="mt-4 space-y-3">
+                                    {watchlistItems.length > 0 ? (
+                                        watchlistItems.map((item) => (
+                                            <button
+                                                key={item.ticker_code}
+                                                type="button"
+                                                onClick={() => setSelectedTicker(item.ticker_code)}
+                                                className="flex w-full items-center justify-between rounded-[22px] bg-slate-50 px-4 py-4 text-left"
+                                            >
+                                                <div>
+                                                    <p className="font-semibold text-slate-900">{item.ticker_name}</p>
+                                                    <p className="mt-1 text-sm text-slate-500">{item.ticker_code}</p>
+                                                </div>
+                                                <p className="text-sm font-medium text-slate-700">{formatPrice(item.current_price)}</p>
+                                            </button>
+                                        ))
+                                    ) : (
+                                        <div className="rounded-[22px] bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                                            아직 저장한 관심 종목이 없습니다.
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="rounded-3xl bg-white/8 p-5">
-                                    <p className="text-sm text-white/65">Beginner note</p>
-                                    <p className="mt-3 text-sm leading-7 text-white/88">
-                                        {selectedRecommendation?.beginner_note ?? 'Choose a stock to read the beginner note.'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="mt-4 rounded-3xl bg-white/8 p-5">
-                                <p className="text-sm text-white/65">Action guide</p>
-                                <p className="mt-3 text-sm leading-7 text-white/88">
-                                    {selectedRecommendation?.action_guide ?? 'Choose a stock to see a simple next-step suggestion.'}
-                                </p>
-                            </div>
-                            <div className="mt-4 rounded-3xl bg-white/8 p-5">
-                                <p className="text-sm text-white/65">Financial snapshot</p>
-                                <p className="mt-3 text-sm leading-7 text-white/88">
-                                    {selectedRecommendation?.financial_snapshot.summary ??
-                                        'Choose a stock to see how financial statement coverage looks.'}
-                                </p>
-                                {selectedRecommendation?.financial_snapshot.source && (
-                                    <div className="mt-4 inline-flex rounded-full bg-white/10 px-3 py-2 text-xs text-white/78">
-                                        {selectedRecommendation.financial_snapshot.is_demo ? 'demo financial seed' : selectedRecommendation.financial_snapshot.source}
-                                    </div>
-                                )}
-                                {selectedRecommendation?.financial_snapshot.year && (
-                                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                                        <div className="rounded-2xl bg-white/6 px-4 py-3">
-                                            <p className="text-xs text-white/55">Revenue</p>
-                                            <p className="mt-1 text-sm font-semibold">
-                                                {formatPrice(selectedRecommendation.financial_snapshot.revenue ?? 0)}
-                                            </p>
+                            </article>
+
+                            <article className="rounded-[32px] border border-white/80 bg-white/88 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.07)]">
+                                <p className="text-sm font-semibold text-slate-500">빠른 체크</p>
+                                <h2 className="mt-2 font-display text-2xl text-slate-950">매수 전 확인할 것</h2>
+                                <div className="mt-4 space-y-3">
+                                    {(dashboard?.starter_steps ?? []).map((step) => (
+                                        <div key={step} className="rounded-[22px] bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
+                                            {step}
                                         </div>
-                                        <div className="rounded-2xl bg-white/6 px-4 py-3">
-                                            <p className="text-xs text-white/55">Operating income</p>
-                                            <p className="mt-1 text-sm font-semibold">
-                                                {formatPrice(selectedRecommendation.financial_snapshot.operating_income ?? 0)}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-2xl bg-white/6 px-4 py-3">
-                                            <p className="text-xs text-white/55">Net income</p>
-                                            <p className="mt-1 text-sm font-semibold">
-                                                {formatPrice(selectedRecommendation.financial_snapshot.net_income ?? 0)}
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="mt-5 rounded-3xl bg-white/8 p-5">
-                                <p className="text-sm text-white/65">Recommendation reasons</p>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                    {(selectedRecommendation?.reasons ?? []).map((reason) => (
-                                        <span key={reason} className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/92">
-                                            {reason}
-                                        </span>
                                     ))}
                                 </div>
-                            </div>
+                            </article>
                         </section>
-                    </div>
+
+                        <section className="rounded-[32px] border border-white/80 bg-slate-950 p-6 text-white shadow-[0_22px_60px_rgba(15,23,42,0.18)]">
+                            <p className="text-sm font-semibold text-white/65">재무 요약</p>
+                            <h2 className="mt-2 font-display text-3xl text-white">기업 숫자를 간단히 보기</h2>
+                            <p className="mt-3 text-sm leading-6 text-white/72">
+                                {selectedRecommendation?.financial_snapshot.summary ?? '종목을 선택하면 재무 요약을 확인할 수 있습니다.'}
+                            </p>
+                            <div className="mt-5 grid gap-4 md:grid-cols-3">
+                                <div className="rounded-[24px] bg-white/10 p-4">
+                                    <p className="text-xs text-white/55">매출</p>
+                                    <p className="mt-2 text-xl font-semibold">
+                                        {formatCompactNumber(selectedRecommendation?.financial_snapshot.revenue ?? null)}
+                                    </p>
+                                </div>
+                                <div className="rounded-[24px] bg-white/10 p-4">
+                                    <p className="text-xs text-white/55">영업이익</p>
+                                    <p className="mt-2 text-xl font-semibold">
+                                        {formatCompactNumber(selectedRecommendation?.financial_snapshot.operating_income ?? null)}
+                                    </p>
+                                </div>
+                                <div className="rounded-[24px] bg-white/10 p-4">
+                                    <p className="text-xs text-white/55">순이익</p>
+                                    <p className="mt-2 text-xl font-semibold">
+                                        {formatCompactNumber(selectedRecommendation?.financial_snapshot.net_income ?? null)}
+                                    </p>
+                                </div>
+                            </div>
+                            {selectedRecommendation?.financial_snapshot.source ? (
+                                <p className="mt-4 text-xs text-white/55">
+                                    출처: {selectedRecommendation.financial_snapshot.source}
+                                    {selectedRecommendation.financial_snapshot.is_demo ? ' · 데모 데이터 포함' : ''}
+                                </p>
+                            ) : null}
+                        </section>
+                    </section>
                 </section>
             </section>
         </main>

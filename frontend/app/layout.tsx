@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-    title: 'Stock Starter',
-    description: '초보 투자자를 위한 주식 추천 웹서비스',
+    title: '주식 스타터',
+    description: '초보 투자자를 위한 쉬운 주식 추천 서비스',
 };
 
 export default function RootLayout({
